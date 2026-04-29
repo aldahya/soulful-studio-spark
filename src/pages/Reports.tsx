@@ -18,10 +18,13 @@ interface Row {
 }
 
 export default function Reports() {
+  const settings = useSchoolSettings();
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  const [monthlyMonth, setMonthlyMonth] = useState(todayISO().slice(0, 7));
+  const [sending, setSending] = useState(false);
 
   useEffect(() => { document.title = 'التقارير | نظام الضاحية'; load(); }, []);
 
