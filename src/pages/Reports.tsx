@@ -55,6 +55,64 @@ export default function Reports() {
     toast.success('تم تصدير الملف');
   }
 
+  async function sendMonthlyReports() {
+    setSending(true);
+    try {
+      const start = `${monthlyMonth}-01`;
+      const endDate = new Date(start);
+      endDate.setMonth(endDate.getMonth() + 1);
+      const end = endDate.toISOString().slice(0, 10);
+
+      const { data: students } = await supabase
+        .from('students').select('id, full_name, student_number, parent_phone')
+        .order('full_name');
+      if (!students || students.length === 0) { toast.error('لا يوجد طلاب'); return; }
+
+      const { data: records } = await supabase
+        .from('attendance_records')
+        .select('student_id, status, date')
+        .gte('date', start).lt('date', end);
+
+      const stats = new Map<string, { present: number; late: number; absent: number }>();
+      (records ?? []).forEach((r) => {
+        const s = stats.get(r.student_id) ?? { present: 0, late: 0, absent: 0 };
+        s[r.status as AttendanceStatus]++;
+        stats.set(r.student_id, s);
+      });
+
+      const targets = students.filter((s) => toWhatsAppNumber(s.parent_phone));
+      if (targets.length === 0) { toast.error('لا يوجد أرقام أولياء أمور صالحة'); return; }
+
+      const monthLabel = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { month: 'long', year: 'numeric' })
+        .format(new Date(start));
+
+      toast.info(`سيتم فتح ${targets.length} رابط واتساب — اسمح للمتصفح بفتح النوافذ المتعددة`);
+
+      for (const s of targets) {
+        const st = stats.get(s.id) ?? { present: 0, late: 0, absent: 0 };
+        const total = st.present + st.late + st.absent;
+        const rate = total ? Math.round((st.present / total) * 100) : 0;
+        const msg = [
+          `السلام عليكم ولي أمر الطالب: ${s.full_name}`,
+          `${settings?.school_name ?? 'مدارسنا'} — تقرير الحضور لشهر ${monthLabel}`,
+          ``,
+          `✅ حاضر: ${st.present}`,
+          `⏱ متأخر: ${st.late}`,
+          `❌ غائب: ${st.absent}`,
+          `📊 نسبة الحضور: ${rate}%`,
+          ``,
+          `شاكرين تعاونكم.`,
+        ].join('\n');
+        const link = whatsAppLink(s.parent_phone, msg);
+        if (link) window.open(link, '_blank');
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      toast.success(`تم فتح ${targets.length} رسالة واتساب`);
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header>
