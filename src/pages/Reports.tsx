@@ -131,6 +131,21 @@ export default function Reports() {
         </div>
       </Card>
 
+      <Card className="p-5 shadow-soft border-accent/30 bg-accent/5">
+        <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><Send className="h-5 w-5 text-accent" /> التقارير الشهرية لأولياء الأمور</h2>
+        <p className="text-xs text-muted-foreground mb-4">يفتح روابط واتساب جاهزة (wa.me) لكل ولي أمر برسالة مُلخَّصة لإحصائيات الشهر — الإرسال يتم يدوياً بنقرة من المتصفح.</p>
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-1">
+            <Label className="text-xs">الشهر</Label>
+            <Input type="month" value={monthlyMonth} onChange={(e) => setMonthlyMonth(e.target.value)} className="w-44" />
+          </div>
+          <Button onClick={sendMonthlyReports} disabled={sending} className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2">
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            تجهيز روابط واتساب
+          </Button>
+        </div>
+      </Card>
+
       <Card className="shadow-soft">
         {loading ? (
           <div className="flex items-center justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
