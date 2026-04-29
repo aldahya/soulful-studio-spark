@@ -115,13 +115,54 @@
   .bg-gradient-accent { background: var(--gradient-accent); }
   .bg-gradient-hero { background: var(--gradient-hero); }
   .bg-gradient-soft { background: var(--gradient-soft); }
+  .bg-gradient-mesh { background-color: hsl(var(--background)); background-image: var(--gradient-mesh); }
   .shadow-soft { box-shadow: var(--shadow-md); }
   .shadow-elevated { box-shadow: var(--shadow-lg); }
   .shadow-glow { box-shadow: var(--shadow-glow); }
+  .shadow-brand { box-shadow: var(--shadow-brand); }
   .text-gradient-primary {
     background: var(--gradient-primary);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
+  .text-gradient-brand {
+    background: linear-gradient(135deg, hsl(178 55% 32%), hsl(172 38% 64%));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .glass {
+    background: hsl(0 0% 100% / 0.65);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid hsl(0 0% 100% / 0.5);
+  }
+  .glass-dark {
+    background: hsl(195 50% 12% / 0.55);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid hsl(0 0% 100% / 0.12);
+  }
+  .animate-float { animation: float 6s ease-in-out infinite; }
+  .animate-blob { animation: blob 18s ease-in-out infinite; }
+  .animate-shimmer {
+    background: linear-gradient(90deg, transparent, hsl(0 0% 100% / 0.3), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 2.5s linear infinite;
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) }
+  50% { transform: translateY(-12px) }
+}
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1) }
+  33% { transform: translate(28px, -22px) scale(1.06) }
+  66% { transform: translate(-22px, 18px) scale(0.96) }
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0 }
+  100% { background-position: -200% 0 }
 }
