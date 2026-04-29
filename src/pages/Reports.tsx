@@ -6,10 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { STATUS_LABELS, STATUS_COLORS, formatDate, todayISO, type AttendanceStatus, whatsAppLink } from '@/lib/i18n';
-import { Download, MessageCircle, Loader2 } from 'lucide-react';
+import { STATUS_LABELS, STATUS_COLORS, formatDate, todayISO, type AttendanceStatus, whatsAppLink, toWhatsAppNumber } from '@/lib/i18n';
+import { Download, MessageCircle, Loader2, Send } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
+import { useSchoolSettings } from '@/lib/school';
 
 interface Row {
   id: string; status: AttendanceStatus; date: string;
