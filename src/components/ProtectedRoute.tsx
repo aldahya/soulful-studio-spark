@@ -16,7 +16,7 @@ export function ProtectedRoute({ children, requireAdmin = false }: { children: R
   }
 
   if (!session) return <Navigate to="/login" state={{ from: location }} replace />;
-  if (requireAdmin && !isAdmin) return <Navigate to="/scan" replace />;
+  if (requireAdmin && !isAdmin) return <Navigate to="/" replace />;
   if (!isAdmin && !isTeacher) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">

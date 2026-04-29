@@ -22,9 +22,11 @@ const adminNav = [
 ];
 
 const teacherNav = [
+  { to: '/', icon: LayoutDashboard, label: 'لوحة التحكم', end: true },
   { to: '/scan', icon: ScanLine, label: 'مسح الباركود' },
   { to: '/permissions', icon: FileSignature, label: 'الاستذانات' },
   { to: '/attendance', icon: ClipboardList, label: 'سجل الحضور' },
+  { to: '/reports', icon: FileBarChart, label: 'التقارير' },
 ];
 
 export function Layout() {
