@@ -16,6 +16,7 @@ import Attendance from "./pages/Attendance";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Scan from "./pages/Scan";
+import Permissions from "./pages/Permissions";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ const App = () => (
             <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
               <Route index element={<Dashboard />} />
               <Route path="scan" element={<Scan />} />
+              <Route path="permissions" element={<Permissions />} />
               <Route path="students" element={<ProtectedRoute requireAdmin><Students /></ProtectedRoute>} />
               <Route path="students/:id" element={<ProtectedRoute requireAdmin><StudentDetail /></ProtectedRoute>} />
               <Route path="classes" element={<ProtectedRoute requireAdmin><Classes /></ProtectedRoute>} />

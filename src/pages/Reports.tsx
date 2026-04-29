@@ -6,10 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { STATUS_LABELS, STATUS_COLORS, formatDate, todayISO, type AttendanceStatus, whatsAppLink } from '@/lib/i18n';
-import { Download, MessageCircle, Loader2 } from 'lucide-react';
+import { STATUS_LABELS, STATUS_COLORS, formatDate, todayISO, type AttendanceStatus, whatsAppLink, toWhatsAppNumber } from '@/lib/i18n';
+import { Download, MessageCircle, Loader2, Send } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
+import { useSchoolSettings } from '@/lib/school';
 
 interface Row {
   id: string; status: AttendanceStatus; date: string;
@@ -17,10 +18,13 @@ interface Row {
 }
 
 export default function Reports() {
+  const settings = useSchoolSettings();
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  const [monthlyMonth, setMonthlyMonth] = useState(todayISO().slice(0, 7));
+  const [sending, setSending] = useState(false);
 
   useEffect(() => { document.title = 'التقارير | نظام الضاحية'; load(); }, []);
 
@@ -51,6 +55,64 @@ export default function Reports() {
     toast.success('تم تصدير الملف');
   }
 
+  async function sendMonthlyReports() {
+    setSending(true);
+    try {
+      const start = `${monthlyMonth}-01`;
+      const endDate = new Date(start);
+      endDate.setMonth(endDate.getMonth() + 1);
+      const end = endDate.toISOString().slice(0, 10);
+
+      const { data: students } = await supabase
+        .from('students').select('id, full_name, student_number, parent_phone')
+        .order('full_name');
+      if (!students || students.length === 0) { toast.error('لا يوجد طلاب'); return; }
+
+      const { data: records } = await supabase
+        .from('attendance_records')
+        .select('student_id, status, date')
+        .gte('date', start).lt('date', end);
+
+      const stats = new Map<string, { present: number; late: number; absent: number }>();
+      (records ?? []).forEach((r) => {
+        const s = stats.get(r.student_id) ?? { present: 0, late: 0, absent: 0 };
+        s[r.status as AttendanceStatus]++;
+        stats.set(r.student_id, s);
+      });
+
+      const targets = students.filter((s) => toWhatsAppNumber(s.parent_phone));
+      if (targets.length === 0) { toast.error('لا يوجد أرقام أولياء أمور صالحة'); return; }
+
+      const monthLabel = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { month: 'long', year: 'numeric' })
+        .format(new Date(start));
+
+      toast.info(`سيتم فتح ${targets.length} رابط واتساب — اسمح للمتصفح بفتح النوافذ المتعددة`);
+
+      for (const s of targets) {
+        const st = stats.get(s.id) ?? { present: 0, late: 0, absent: 0 };
+        const total = st.present + st.late + st.absent;
+        const rate = total ? Math.round((st.present / total) * 100) : 0;
+        const msg = [
+          `السلام عليكم ولي أمر الطالب: ${s.full_name}`,
+          `${settings?.school_name ?? 'مدارسنا'} — تقرير الحضور لشهر ${monthLabel}`,
+          ``,
+          `✅ حاضر: ${st.present}`,
+          `⏱ متأخر: ${st.late}`,
+          `❌ غائب: ${st.absent}`,
+          `📊 نسبة الحضور: ${rate}%`,
+          ``,
+          `شاكرين تعاونكم.`,
+        ].join('\n');
+        const link = whatsAppLink(s.parent_phone, msg);
+        if (link) window.open(link, '_blank');
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      toast.success(`تم فتح ${targets.length} رسالة واتساب`);
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header>
@@ -65,6 +127,21 @@ export default function Reports() {
           <Button onClick={load} className="bg-gradient-primary">عرض</Button>
           <Button onClick={exportExcel} variant="outline" disabled={rows.length === 0} className="gap-2">
             <Download className="h-4 w-4" /> تصدير Excel
+          </Button>
+        </div>
+      </Card>
+
+      <Card className="p-5 shadow-soft border-accent/30 bg-accent/5">
+        <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><Send className="h-5 w-5 text-accent" /> التقارير الشهرية لأولياء الأمور</h2>
+        <p className="text-xs text-muted-foreground mb-4">يفتح روابط واتساب جاهزة (wa.me) لكل ولي أمر برسالة مُلخَّصة لإحصائيات الشهر — الإرسال يتم يدوياً بنقرة من المتصفح.</p>
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-1">
+            <Label className="text-xs">الشهر</Label>
+            <Input type="month" value={monthlyMonth} onChange={(e) => setMonthlyMonth(e.target.value)} className="w-44" />
+          </div>
+          <Button onClick={sendMonthlyReports} disabled={sending} className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2">
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            تجهيز روابط واتساب
           </Button>
         </div>
       </Card>

@@ -86,6 +86,101 @@ export type Database = {
         }
         Relationships: []
       }
+      permission_logs: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          id: string
+          permission_id: string
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          permission_id: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          permission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "permission_logs_permission_id_fkey"
+            columns: ["permission_id"]
+            isOneToOne: false
+            referencedRelation: "permissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      permissions: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          issued_at: string
+          issued_by: string
+          notes: string | null
+          reason: string
+          returned_at: string | null
+          status: Database["public"]["Enums"]["permission_status"]
+          student_id: string
+          teacher_id: string | null
+          updated_at: string
+          used_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          date?: string
+          id?: string
+          issued_at?: string
+          issued_by: string
+          notes?: string | null
+          reason?: string
+          returned_at?: string | null
+          status?: Database["public"]["Enums"]["permission_status"]
+          student_id: string
+          teacher_id?: string | null
+          updated_at?: string
+          used_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          issued_at?: string
+          issued_by?: string
+          notes?: string | null
+          reason?: string
+          returned_at?: string | null
+          status?: Database["public"]["Enums"]["permission_status"]
+          student_id?: string
+          teacher_id?: string | null
+          updated_at?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "permissions_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "permissions_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -251,6 +346,7 @@ export type Database = {
     Enums: {
       app_role: "admin" | "teacher"
       attendance_status: "present" | "late" | "absent"
+      permission_status: "pending" | "used" | "returned"
       school_stage: "primary" | "intermediate" | "secondary"
     }
     CompositeTypes: {
@@ -381,6 +477,7 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "teacher"],
       attendance_status: ["present", "late", "absent"],
+      permission_status: ["pending", "used", "returned"],
       school_stage: ["primary", "intermediate", "secondary"],
     },
   },

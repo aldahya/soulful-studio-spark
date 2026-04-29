@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useSchoolSettings, SCHOOL_LOGO } from '@/lib/school';
 import {
   LayoutDashboard, Users, GraduationCap, UserCog, ClipboardList,
-  ScanLine, FileBarChart, Settings, LogOut, Menu, X,
+  ScanLine, FileBarChart, Settings, LogOut, Menu, X, FileSignature,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 const adminNav = [
   { to: '/', icon: LayoutDashboard, label: 'لوحة التحكم', end: true },
   { to: '/scan', icon: ScanLine, label: 'مسح الباركود' },
+  { to: '/permissions', icon: FileSignature, label: 'الاستذانات' },
   { to: '/students', icon: Users, label: 'الطلاب' },
   { to: '/classes', icon: GraduationCap, label: 'الفصول' },
   { to: '/teachers', icon: UserCog, label: 'المعلمون' },
@@ -22,6 +23,7 @@ const adminNav = [
 
 const teacherNav = [
   { to: '/scan', icon: ScanLine, label: 'مسح الباركود' },
+  { to: '/permissions', icon: FileSignature, label: 'الاستذانات' },
   { to: '/attendance', icon: ClipboardList, label: 'سجل الحضور' },
 ];
 
