@@ -72,7 +72,7 @@ export function Layout() {
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.end}
+              end={(item as any).end}
               onClick={() => setOpen(false)}
               className={({ isActive }) =>
                 cn(
