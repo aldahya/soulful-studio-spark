@@ -39,7 +39,11 @@ export default function Scan() {
     const trimmed = code.trim();
     if (!trimmed) return;
     setCode('');
+    await processCode(trimmed);
+    focusInput();
+  }
 
+  async function processCode(trimmed: string) {
     const { data: student, error } = await supabase
       .from('students').select('id, full_name, student_number')
       .eq('barcode', trimmed).maybeSingle();
@@ -47,36 +51,23 @@ export default function Scan() {
     if (error || !student) {
       pushLog(false, `باركود غير معروف: ${trimmed}`);
       toast.error('باركود غير معروف');
-      focusInput();
       return;
     }
 
     const today = todayISO();
-
-    // Check existing attendance for today
     const { data: existing } = await supabase
-      .from('attendance_records')
-      .select('id, status')
-      .eq('student_id', student.id)
-      .eq('date', today)
-      .maybeSingle();
+      .from('attendance_records').select('id, status')
+      .eq('student_id', student.id).eq('date', today).maybeSingle();
 
     if (existing) {
-      // Already attended → look for an unused permission to consume
       const { data: perm } = await supabase
-        .from('permissions')
-        .select('id, status, reason')
-        .eq('student_id', student.id)
-        .eq('date', today)
-        .eq('status', 'pending')
-        .maybeSingle();
+        .from('permissions').select('id, status, reason')
+        .eq('student_id', student.id).eq('date', today).eq('status', 'pending').maybeSingle();
 
       if (perm) {
         const nowIso = new Date().toISOString();
         const { error: updErr } = await supabase
-          .from('permissions')
-          .update({ status: 'used', used_at: nowIso })
-          .eq('id', perm.id);
+          .from('permissions').update({ status: 'used', used_at: nowIso }).eq('id', perm.id);
         if (updErr) {
           pushLog(false, `تعذّر استهلاك الاستذان: ${updErr.message}`);
           toast.error(updErr.message);
@@ -91,11 +82,9 @@ export default function Scan() {
         pushLog(false, `${student.full_name} مسجَّل حضوره مسبقاً اليوم — لا يوجد استذان`, 'مكرر');
         toast.error(`${student.full_name}: مسجَّل بالفعل اليوم`);
       }
-      focusInput();
       return;
     }
 
-    // First scan today → record attendance
     const { error: insErr } = await supabase
       .from('attendance_records')
       .insert({ student_id: student.id, teacher_id: teacherId, status, date: today });
@@ -107,7 +96,6 @@ export default function Scan() {
       pushLog(true, `${student.full_name} (${student.student_number})`, STATUS_LABELS[status]);
       toast.success(`${STATUS_LABELS[status]}: ${student.full_name}`);
     }
-    focusInput();
   }
 
   function focusInput() {
