@@ -23,7 +23,6 @@ jobs:
 
       - name: Build project
         run: |
-          # حذف استدعاء lovable-tagger لتجنب أخطاء البناء
           sed -i "/lovable-tagger/d" vite.config.ts
           npm run build
         env:
@@ -32,32 +31,30 @@ jobs:
 
       - name: Prepare Files for Deployment
         run: |
-          # 1. نسخ ملفات PWA يدوياً لضمان وجودها في المجلد النهائي dist
-          cp public/manifest.json dist/ || echo "manifest.json not found"
-          cp public/sw.js dist/ || echo "sw.js not found"
-          cp public/000.png dist/ || echo "000.png not found"
+          # التأكد من نسخ الملفات لمجلد dist
+          cp public/manifest.json dist/manifest.json || echo "manifest.json missing"
+          cp public/sw.js dist/sw.js || echo "sw.js missing"
+          cp public/000.png dist/000.png || echo "000.png missing"
           
-          # 2. إنشاء ملف .htaccess مطور يسمح بالوصول للملفات المباشرة (حل مشكلة 404 )
+          # إنشاء ملف .htaccess قوي جداً
           echo '<IfModule mod_rewrite.c>
             RewriteEngine On
             RewriteBase /
             
-            # إذا كان الملف موجوداً فعلياً (مثل 000.png)، افتحه مباشرة ولا تطبق القواعد التالية
+            # منع تحويل ملفات PWA والصور إلى index.html
+            RewriteRule ^(manifest\.json|sw\.js|000\.png ) - [L]
+            
             RewriteCond %{REQUEST_FILENAME} -f
             RewriteRule ^ - [L]
             
-            # قواعد React Routing الأساسية
             RewriteRule ^index\.html$ - [L]
             RewriteCond %{REQUEST_FILENAME} !-f
             RewriteCond %{REQUEST_FILENAME} !-d
             RewriteRule . /index.html [L]
           </IfModule>' > dist/.htaccess
           
-          # 3. إصلاح مسارات الأصول في index.html
           sed -i "s|/assets/|assets/|g" dist/index.html
-          
-          # 4. عرض قائمة الملفات في السجلات للتأكد
-          ls -R dist/
+          ls -la dist/
 
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
@@ -69,3 +66,4 @@ jobs:
           server-dir: /public_html/aldaahia/
           protocol: ftp
           port: 21
+          dangerous-clean-slate: false
