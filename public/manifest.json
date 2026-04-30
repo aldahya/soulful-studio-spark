@@ -2,20 +2,23 @@
   "name": "مدرسة الداهية",
   "short_name": "الداهية",
   "description": "نظام إدارة مدرسة الداهية",
-  "start_url": "/",
+  "start_url": "/index.html",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#ffffff",
   "theme_color": "#3b82f6",
   "icons": [
     {
-      "src": "assets/school-logo.png",
+      "src": "/assets/school-logo.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
-      "src": "assets/school-logo.png",
+      "src": "/assets/school-logo.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
