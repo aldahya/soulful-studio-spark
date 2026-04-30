@@ -42,15 +42,24 @@ jobs:
           
           sed -i "s|/assets/|assets/|g" dist/index.html
 
-      - name: Deploy via FTP
+      - name: Deploy to Path 1 (Direct )
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          # التعديل هنا: المسار الصحيح بالنسبة لحساب الـ FTP
+          server-dir: /public_html/aldaahia/
+          protocol: ftp
+          port: 21
+
+      - name: Deploy to Path 2 (Domains Path)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./dist/
           server-dir: domains/almalkieducational.com/public_html/aldaahia/
           protocol: ftp
           port: 21
-          timeout: 90000
