@@ -4,10 +4,12 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScanLine, CheckCircle2, AlertCircle, Clock, XCircle, LogOut, ArrowLeftRight } from 'lucide-react';
+import { ScanLine, CheckCircle2, AlertCircle, Clock, XCircle, LogOut, ArrowLeftRight, Keyboard, Camera } from 'lucide-react';
 import { STATUS_LABELS, todayISO, type AttendanceStatus } from '@/lib/i18n';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import CameraScanner from '@/components/CameraScanner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface LogEntry { time: string; ok: boolean; text: string; tag?: string }
 
