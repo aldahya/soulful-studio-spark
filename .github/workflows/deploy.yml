@@ -18,22 +18,25 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # تثبيت كل شيء موجود في المشروع مع تجاهل التعارضات
           npm install --legacy-peer-deps
-          # تثبيت المكتبات الإضافية التي تسببت في الأخطاء السابقة دفعة واحدة
           npm install xlsx jsbarcode @zxing/browser @zxing/library lucide-react @tanstack/react-query @supabase/supabase-js framer-motion clsx tailwind-merge --save
 
       - name: Build project
         run: |
-          # تنظيف ملف الإعدادات من أي إضافات خاصة ببيئة التطوير فقط
           sed -i "/lovable-tagger/d" vite.config.ts
           npm run build
         env:
           VITE_SUPABASE_URL: "https://vznzdkpcroccuklfjxac.supabase.co"
           VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6bnpka3Bjcm9jY3VrbGZqeGFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NTQ2MjQsImV4cCI6MjA5MzAzMDYyNH0.xvTxabYlNW6gq_BbQsCj2UZJLXboC85-P0B78z1dlOA"
 
-      - name: Add .htaccess and fix index.html
+      - name: Manual Copy PWA Files and Fix Paths
         run: |
+          # نسخ ملفات PWA يدوياً لضمان وجودها في المجلد النهائي
+          cp public/manifest.json dist/ || true
+          cp public/sw.js dist/ || true
+          cp public/000.png dist/ || true
+          
+          # إنشاء ملف .htaccess
           echo '<IfModule mod_rewrite.c>
             RewriteEngine On
             RewriteBase /
@@ -42,6 +45,8 @@ jobs:
             RewriteCond %{REQUEST_FILENAME} !-d
             RewriteRule . /index.html [L]
           </IfModule>' > dist/.htaccess
+          
+          # إصلاح مسارات الأصول في index.html
           sed -i "s|/assets/|assets/|g" dist/index.html
 
       - name: Deploy via FTP
