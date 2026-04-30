@@ -3,14 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- TODO: Set the document title to the name of your application -->
     <title>AlDahya</title>
     <meta name="description" content="النظام الذكى لتسجيل الحضور لمدرسة الضاحية الأهلية لبنين">
     <meta name="author" content="Lovable" />
 
-    <!-- TODO: Update og:title to match your application name -->
-    
-    
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="مدرسة الداهية">
+    <link rel="apple-touch-icon" href="/assets/school-logo.png">
+    <meta name="theme-color" content="#3b82f6">
+
     <meta property="og:type" content="website" />
     <meta property="og:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/999718bd-0292-47b5-a13a-ca319697b035/id-preview-d806d491--cd16a8dd-7285-45b1-b4ec-4a621eeb06d7.lovable.app-1777526882185.png">
 
@@ -18,14 +22,20 @@
     <meta name="twitter:site" content="@Lovable" />
     <meta name="twitter:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/999718bd-0292-47b5-a13a-ca319697b035/id-preview-d806d491--cd16a8dd-7285-45b1-b4ec-4a621eeb06d7.lovable.app-1777526882185.png">
     
-  
-  
-  
-  <meta property="og:title" content="AlDahya">
-  <meta name="twitter:title" content="AlDahya">
-  <meta property="og:description" content="النظام الذكى لتسجيل الحضور لمدرسة الضاحية الأهلية لبنين">
-  <meta name="twitter:description" content="النظام الذكى لتسجيل الحضور لمدرسة الضاحية الأهلية لبنين">
-</head>
+    <meta property="og:title" content="AlDahya">
+    <meta name="twitter:title" content="AlDahya">
+    <meta property="og:description" content="النظام الذكى لتسجيل الحضور لمدرسة الضاحية الأهلية لبنين">
+    <meta name="twitter:description" content="النظام الذكى لتسجيل الحضور لمدرسة الضاحية الأهلية لبنين">
+
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator ) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration failed:', err));
+        });
+      }
+    </script>
+  </head>
 
   <body>
     <div id="root"></div>
