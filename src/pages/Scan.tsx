@@ -129,24 +129,35 @@ export default function Scan() {
             ))}
           </div>
 
-          <form onSubmit={handleSubmit}>
-            <div className="relative">
-              <ScanLine className="absolute right-4 top-1/2 h-6 w-6 -translate-y-1/2 text-primary" />
-              <Input
-                ref={inputRef}
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="ALD-..."
-                className="h-16 pr-14 text-center text-xl font-mono tracking-widest shadow-soft"
-                dir="ltr"
-                autoFocus
-              />
-            </div>
-            <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
-              <ArrowLeftRight className="h-3.5 w-3.5" />
-              مسح أول = حضور · مسح ثانٍ = استهلاك استذان الخروج
-            </p>
-          </form>
+          <Tabs defaultValue="keyboard">
+            <TabsList className="mb-4">
+              <TabsTrigger value="keyboard" className="gap-2"><Keyboard className="h-4 w-4" /> ماسح/لوحة مفاتيح</TabsTrigger>
+              <TabsTrigger value="camera" className="gap-2"><Camera className="h-4 w-4" /> كاميرا الهاتف</TabsTrigger>
+            </TabsList>
+            <TabsContent value="keyboard">
+              <form onSubmit={handleSubmit}>
+                <div className="relative">
+                  <ScanLine className="absolute right-4 top-1/2 h-6 w-6 -translate-y-1/2 text-primary" />
+                  <Input
+                    ref={inputRef}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="ALD-..."
+                    className="h-16 pr-14 text-center text-xl font-mono tracking-widest shadow-soft"
+                    dir="ltr"
+                    autoFocus
+                  />
+                </div>
+              </form>
+            </TabsContent>
+            <TabsContent value="camera">
+              <CameraScanner onDetected={(text) => processCode(text.trim())} />
+            </TabsContent>
+          </Tabs>
+          <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+            <ArrowLeftRight className="h-3.5 w-3.5" />
+            مسح أول = حضور · مسح ثانٍ = استهلاك استذان الخروج
+          </p>
         </Card>
 
         <Card className="p-4 shadow-soft">
