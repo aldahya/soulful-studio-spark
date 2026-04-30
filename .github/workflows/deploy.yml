@@ -29,23 +29,18 @@ jobs:
           VITE_SUPABASE_URL: "https://vznzdkpcroccuklfjxac.supabase.co"
           VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6bnpka3Bjcm9jY3VrbGZqeGFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NTQ2MjQsImV4cCI6MjA5MzAzMDYyNH0.xvTxabYlNW6gq_BbQsCj2UZJLXboC85-P0B78z1dlOA"
 
-      - name: Prepare Files for Deployment
+      - name: Prepare Files
         run: |
-          cp public/manifest.json dist/manifest.json || echo "manifest.json missing"
-          cp public/sw.js dist/sw.js || echo "sw.js missing"
-          cp public/000.png dist/000.png || echo "000.png missing"
+          # نسخ الملفات الأساسية
+          cp public/manifest.json dist/manifest.json || true
+          cp public/sw.js dist/sw.js || true
+          cp public/000.png dist/000.png || true
           
-          echo '<IfModule mod_rewrite.c>
-            RewriteEngine On
-            RewriteBase /
-            RewriteRule ^(manifest\.json|sw\.js|000\.png ) - [L]
-            RewriteCond %{REQUEST_FILENAME} -f
-            RewriteRule ^ - [L]
-            RewriteRule ^index\.html$ - [L]
-            RewriteCond %{REQUEST_FILENAME} !-f
-            RewriteCond %{REQUEST_FILENAME} !-d
-            RewriteRule . /index.html [L]
-          </IfModule>' > dist/.htaccess
+          # ملف .htaccess بسيط جداً لضمان عمل الصور
+          echo 'RewriteEngine On
+          RewriteCond %{REQUEST_FILENAME} !-f
+          RewriteCond %{REQUEST_FILENAME} !-d
+          RewriteRule . index.html [L]' > dist/.htaccess
           
           sed -i "s|/assets/|assets/|g" dist/index.html
 
@@ -59,6 +54,4 @@ jobs:
           server-dir: /public_html/aldaahia/
           protocol: ftp
           port: 21
-          # إعدادات إضافية لحل مشكلة الـ Timeout
           timeout: 90000
-          log-level: verbose
