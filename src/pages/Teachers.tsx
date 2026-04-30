@@ -128,13 +128,25 @@ export default function Teachers() {
                 </SelectContent>
               </Select>
             </div>
+            {!editing && (
+              <>
+                <div className="space-y-2">
+                  <Label>كلمة المرور</Label>
+                  <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} dir="ltr" placeholder="6 أحرف على الأقل" />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={form.is_admin} onChange={(e) => setForm({ ...form, is_admin: e.target.checked })} />
+                  منح صلاحيات إدارية
+                </label>
+              </>
+            )}
             <p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-              لربط المعلم بحساب تسجيل دخول: اطلب منه إنشاء حساب بنفس البريد، ثم من صفحة الإعدادات اربط الحساب بالدور المناسب.
+              {editing ? 'لا يمكن تعديل كلمة المرور من هنا. اطلب من المعلم استخدام "نسيت كلمة المرور".' : 'سيتم إنشاء حساب المعلم تلقائياً بالبريد وكلمة المرور المُدخلة.'}
             </p>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)}>إلغاء</Button>
-            <Button onClick={save} className="bg-gradient-primary">حفظ</Button>
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>إلغاء</Button>
+            <Button onClick={save} disabled={saving} className="bg-gradient-primary">{saving ? 'جارٍ الحفظ...' : 'حفظ'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
