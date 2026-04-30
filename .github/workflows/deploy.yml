@@ -20,7 +20,10 @@ jobs:
         run: npm install
 
       - name: Build project
-        run: npm run build
+        run: |
+          # حل مشكلة lovable-tagger
+          export VITE_LOVABLE_TAGGER_DISABLED=true
+          npm run build
         env:
           VITE_SUPABASE_URL: "https://vznzdkpcroccuklfjxac.supabase.co"
           VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6bnpka3Bjcm9jY3VrbGZqeGFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NTQ2MjQsImV4cCI6MjA5MzAzMDYyNH0.xvTxabYlNW6gq_BbQsCj2UZJLXboC85-P0B78z1dlOA"
