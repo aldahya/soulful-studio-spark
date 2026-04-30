@@ -31,12 +31,10 @@ jobs:
 
       - name: Prepare Files
         run: |
-          # نسخ الملفات الأساسية
           cp public/manifest.json dist/manifest.json || true
           cp public/sw.js dist/sw.js || true
           cp public/000.png dist/000.png || true
           
-          # ملف .htaccess بسيط جداً لضمان عمل الصور
           echo 'RewriteEngine On
           RewriteCond %{REQUEST_FILENAME} !-f
           RewriteCond %{REQUEST_FILENAME} !-d
@@ -51,7 +49,8 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          server-dir: /public_html/aldaahia/
+          # التعديل هنا: المسار الصحيح بالنسبة لحساب الـ FTP
+          server-dir: domains/almalkieducational.com/public_html/aldaahia/
           protocol: ftp
           port: 21
           timeout: 90000
