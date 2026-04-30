@@ -18,13 +18,14 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # تثبيت كل شيء موجود في المشروع مع تجاهل التعارضات
           npm install --legacy-peer-deps
-          # تثبيت كافة المكتبات الإضافية التي يحتاجها المشروع
-          npm install xlsx jsbarcode lucide-react @tanstack/react-query @supabase/supabase-js --save
+          # تثبيت المكتبات الإضافية التي تسببت في الأخطاء السابقة دفعة واحدة
+          npm install xlsx jsbarcode @zxing/browser @zxing/library lucide-react @tanstack/react-query @supabase/supabase-js framer-motion clsx tailwind-merge --save
 
       - name: Build project
         run: |
-          # حذف استدعاء lovable-tagger من ملف الإعدادات لتجنب الخطأ
+          # تنظيف ملف الإعدادات من أي إضافات خاصة ببيئة التطوير فقط
           sed -i "/lovable-tagger/d" vite.config.ts
           npm run build
         env:
