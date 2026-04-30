@@ -1,4 +1,4 @@
-name: Deploy to Hostinger Subdomain (SFTP)
+name: Deploy to Hostinger Subdomain
 on:
   push:
     branches:
@@ -42,13 +42,24 @@ jobs:
           
           sed -i "s|/assets/|assets/|g" dist/index.html
 
-      - name: Deploy to Hostinger via SFTP
-        uses: SamKirkland/SFTP-Deploy-Action@v1.4.0
+      - name: Deploy to Path 1 (Direct )
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local-path: './dist/**'
-          remote-path: '/public_html/aldaahia/' # هذا هو المسار الذي سنبدأ به، وسنعدله إذا لزم الأمر
-          protocol: sftp
-          port: 22 # منفذ SFTP الافتراضي هو 22
+          local-dir: ./dist/
+          server-dir: /public_html/aldaahia/
+          protocol: ftp
+          port: 21
+
+      - name: Deploy to Path 2 (Domains Path)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: domains/almalkieducational.com/public_html/aldaahia/
+          protocol: ftp
+          port: 21
