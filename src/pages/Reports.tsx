@@ -8,10 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, formatDate, todayISO, type AttendanceStatus, type Stage, whatsAppLink, toWhatsAppNumber } from '@/lib/i18n';
-import { Download, MessageCircle, Loader2, Send, LogOut } from 'lucide-react';
+import { Download, MessageCircle, Loader2, Send, LogOut, FileText, User as UserIcon } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useSchoolSettings } from '@/lib/school';
+import { useAuth } from '@/hooks/useAuth';
+import { openReportPdf, type ReportRow } from '@/lib/reportPdf';
 
 type EntryStatus = AttendanceStatus | 'permission';
 const ENTRY_LABELS: Record<EntryStatus, string> = { ...STATUS_LABELS, permission: 'استذان' };
@@ -28,14 +30,14 @@ interface Entry {
   class_id: string | null;
   class_name: string | null;
   reason?: string | null;
-  perm_status?: string | null;
 }
 
 interface ClassRow { id: string; name: string; stage: Stage }
-interface StudentRow { id: string; full_name: string; stage: Stage; class_id: string | null }
+interface StudentRow { id: string; full_name: string; stage: Stage; class_id: string | null; parent_phone: string | null }
 
 export default function Reports() {
   const settings = useSchoolSettings();
+  const { isAdmin, teacherStage } = useAuth();
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -47,19 +49,25 @@ export default function Reports() {
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [monthlyMonth, setMonthlyMonth] = useState(todayISO().slice(0, 7));
+  const [monthlyStudent, setMonthlyStudent] = useState<string>('all');
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
     document.title = 'التقارير | نظام الضاحية';
     Promise.all([
       supabase.from('classes').select('id, name, stage').order('name'),
-      supabase.from('students').select('id, full_name, stage, class_id').order('full_name').limit(2000),
+      supabase.from('students').select('id, full_name, stage, class_id, parent_phone').order('full_name').limit(2000),
     ]).then(([c, s]) => {
       setClasses((c.data ?? []) as ClassRow[]);
       setStudents((s.data ?? []) as StudentRow[]);
     });
     load();
   }, []);
+
+  // قفل المعلم على مرحلته
+  useEffect(() => {
+    if (!isAdmin && teacherStage) setStageFilter(teacherStage);
+  }, [isAdmin, teacherStage]);
 
   async function load() {
     setLoading(true);
@@ -85,19 +93,20 @@ export default function Reports() {
       student_number: r.students?.student_number ?? '', parent_phone: r.students?.parent_phone ?? null,
       stage: r.students?.stage, class_id: r.students?.class_id ?? null,
       class_name: r.students?.classes?.name ?? null,
-      reason: r.reason, perm_status: r.status,
+      reason: r.reason,
     }));
     setEntries([...a, ...p].sort((x, y) => y.date.localeCompare(x.date)));
     setLoading(false);
   }
 
   const filtered = useMemo(() => entries.filter((e) => {
+    if (!isAdmin && teacherStage && e.stage !== teacherStage) return false;
     if (statusFilter !== 'all' && e.status !== statusFilter) return false;
     if (stageFilter !== 'all' && e.stage !== stageFilter) return false;
     if (classFilter !== 'all' && (e.class_id ?? '') !== classFilter) return false;
     if (studentFilter !== 'all' && e.student_id !== studentFilter) return false;
     return true;
-  }), [entries, statusFilter, stageFilter, classFilter, studentFilter]);
+  }), [entries, statusFilter, stageFilter, classFilter, studentFilter, isAdmin, teacherStage]);
 
   function exportExcel() {
     const data = filtered.map((r) => ({
@@ -110,23 +119,99 @@ export default function Reports() {
       'سبب الاستذان': r.reason ?? '',
       'هاتف ولي الأمر': r.parent_phone ?? '',
     }));
+    // Header row meta as second sheet
     const ws = XLSX.utils.json_to_sheet(data);
     (ws as any)['!views'] = [{ RTL: true }];
+
+    const meta = [
+      [settings?.school_name ?? 'مدارس الضاحية'],
+      [settings?.subtitle ?? ''],
+      [`الفترة: من ${from} إلى ${to}`],
+      [`عدد السجلات: ${data.length}`],
+      [`تاريخ الإصدار: ${new Date().toLocaleString('ar-SA')}`],
+    ];
+    const wsMeta = XLSX.utils.aoa_to_sheet(meta);
+    (wsMeta as any)['!views'] = [{ RTL: true }];
     const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsMeta, 'بيانات المدرسة');
     XLSX.utils.book_append_sheet(wb, ws, 'تقرير');
     XLSX.writeFile(wb, `تقرير_${from}_${to}.xlsx`);
     toast.success('تم تصدير الملف');
+  }
+
+  function exportPdf() {
+    if (!filtered.length) { toast.error('لا توجد بيانات'); return; }
+    const rows: ReportRow[] = filtered.map((e) => ({
+      date: e.date, student_name: e.student_name, student_number: e.student_number,
+      stage: e.stage, class_name: e.class_name, status: e.status, reason: e.reason ?? null,
+    }));
+    const filtersText = [
+      stageFilter !== 'all' ? `المرحلة: ${STAGE_LABELS[stageFilter as Stage]}` : '',
+      classFilter !== 'all' ? `الفصل: ${classes.find((c) => c.id === classFilter)?.name ?? ''}` : '',
+      studentFilter !== 'all' ? `الطالب: ${students.find((s) => s.id === studentFilter)?.full_name ?? ''}` : '',
+      statusFilter !== 'all' ? `الحالة: ${ENTRY_LABELS[statusFilter as EntryStatus]}` : '',
+    ].filter(Boolean).join(' • ');
+    openReportPdf(rows, {
+      school_name: settings?.school_name ?? 'مدارس الضاحية',
+      subtitle: settings?.subtitle, address: settings?.address, phone: settings?.phone,
+    }, {
+      title: 'تقرير الحضور والاستذان',
+      range: `${formatDate(from)} — ${formatDate(to)}`,
+      filtersText: filtersText || undefined,
+    });
+  }
+
+  async function generateMonthlyForStudent() {
+    if (monthlyStudent === 'all') { toast.error('اختر طالباً محدداً'); return; }
+    const stu = students.find((s) => s.id === monthlyStudent);
+    if (!stu) return;
+    const start = `${monthlyMonth}-01`;
+    const endDate = new Date(start); endDate.setMonth(endDate.getMonth() + 1);
+    const end = endDate.toISOString().slice(0, 10);
+
+    const [att, perms] = await Promise.all([
+      supabase.from('attendance_records').select('id, status, date, students(full_name, student_number, stage, class_id, classes(name))')
+        .eq('student_id', monthlyStudent).gte('date', start).lt('date', end).order('date'),
+      supabase.from('permissions').select('id, date, reason, students(full_name, student_number, stage, class_id, classes(name))')
+        .eq('student_id', monthlyStudent).gte('date', start).lt('date', end).order('date'),
+    ]);
+    const rows: ReportRow[] = [
+      ...((att.data ?? []) as any[]).map((r) => ({
+        date: r.date, student_name: r.students?.full_name ?? stu.full_name,
+        student_number: r.students?.student_number ?? '', stage: r.students?.stage ?? stu.stage,
+        class_name: r.students?.classes?.name ?? null, status: r.status as AttendanceStatus, reason: null,
+      })),
+      ...((perms.data ?? []) as any[]).map((r) => ({
+        date: r.date, student_name: r.students?.full_name ?? stu.full_name,
+        student_number: r.students?.student_number ?? '', stage: r.students?.stage ?? stu.stage,
+        class_name: r.students?.classes?.name ?? null, status: 'permission' as const, reason: r.reason,
+      })),
+    ].sort((x, y) => x.date.localeCompare(y.date));
+
+    const monthLabel = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { month: 'long', year: 'numeric' }).format(new Date(start));
+    openReportPdf(rows, {
+      school_name: settings?.school_name ?? 'مدارس الضاحية',
+      subtitle: settings?.subtitle, address: settings?.address, phone: settings?.phone,
+    }, {
+      title: `تقرير شهري — ${monthLabel}`,
+      studentName: stu.full_name,
+      range: monthLabel,
+    });
   }
 
   async function sendMonthlyReports() {
     setSending(true);
     try {
       const start = `${monthlyMonth}-01`;
-      const endDate = new Date(start);
-      endDate.setMonth(endDate.getMonth() + 1);
+      const endDate = new Date(start); endDate.setMonth(endDate.getMonth() + 1);
       const end = endDate.toISOString().slice(0, 10);
 
-      const { data: studs } = await supabase.from('students').select('id, full_name, student_number, parent_phone').order('full_name').limit(2000);
+      let studentQuery = supabase.from('students').select('id, full_name, student_number, parent_phone, stage').order('full_name').limit(2000);
+      if (!isAdmin && teacherStage) studentQuery = studentQuery.eq('stage', teacherStage);
+      // فلترة لطالب محدد إن اختير
+      if (monthlyStudent !== 'all') studentQuery = studentQuery.eq('id', monthlyStudent);
+
+      const { data: studs } = await studentQuery;
       if (!studs || !studs.length) { toast.error('لا يوجد طلاب'); return; }
 
       const [{ data: records }, { data: perms }] = await Promise.all([
@@ -145,11 +230,15 @@ export default function Reports() {
       });
 
       const targets = studs.filter((s) => toWhatsAppNumber(s.parent_phone));
-      if (!targets.length) { toast.error('لا يوجد أرقام أولياء أمور صالحة'); return; }
+      if (!targets.length) {
+        toast.error('لا يوجد أرقام أولياء أمور صالحة. تأكد من أن الأرقام السعودية تبدأ بـ 05 أو 5 أو 966');
+        return;
+      }
 
       const monthLabel = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { month: 'long', year: 'numeric' }).format(new Date(start));
-      toast.info(`سيتم فتح ${targets.length} رابط واتساب`);
+      toast.info(`سيتم فتح ${targets.length} رابط واتساب — اسمح للنوافذ المنبثقة في المتصفح`);
 
+      let opened = 0;
       for (const s of targets) {
         const st = stats.get(s.id) ?? { present: 0, late: 0, absent: 0, permission: 0 };
         const total = st.present + st.late + st.absent;
@@ -166,22 +255,37 @@ export default function Reports() {
           ``, `شاكرين تعاونكم.`,
         ].join('\n');
         const link = whatsAppLink(s.parent_phone, msg);
-        if (link) window.open(link, '_blank');
-        await new Promise((r) => setTimeout(r, 400));
+        if (link) {
+          const w = window.open(link, '_blank', 'noopener,noreferrer');
+          if (w) opened++;
+          await new Promise((r) => setTimeout(r, 500));
+        }
       }
-      toast.success(`تم فتح ${targets.length} رسالة واتساب`);
+      if (opened === 0) {
+        toast.error('فشل فتح روابط واتساب. فعّل النوافذ المنبثقة لهذا الموقع ثم أعد المحاولة');
+      } else {
+        toast.success(`تم فتح ${opened} رسالة واتساب من ${targets.length}`);
+      }
     } finally { setSending(false); }
   }
 
-  const visibleStudents = students.filter((s) => stageFilter === 'all' || s.stage === stageFilter)
+  const visibleStudents = students
+    .filter((s) => isAdmin || !teacherStage || s.stage === teacherStage)
+    .filter((s) => stageFilter === 'all' || s.stage === stageFilter)
     .filter((s) => classFilter === 'all' || (s.class_id ?? '') === classFilter);
-  const visibleClasses = classes.filter((c) => stageFilter === 'all' || c.stage === stageFilter);
+  const visibleClasses = classes
+    .filter((c) => isAdmin || !teacherStage || c.stage === teacherStage)
+    .filter((c) => stageFilter === 'all' || c.stage === stageFilter);
 
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-3xl font-extrabold">التقارير</h1>
-        <p className="mt-1 text-sm text-muted-foreground">تقارير الحضور والاستذان حسب المرحلة، الفصل، أو الطالب</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {(!isAdmin && teacherStage)
+            ? `تعرض فقط طلاب مرحلة ${STAGE_LABELS[teacherStage]}`
+            : 'تقارير الحضور والاستذان حسب المرحلة، الفصل، أو الطالب'}
+        </p>
       </header>
 
       <Card className="p-5 shadow-soft">
@@ -203,10 +307,10 @@ export default function Reports() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs">المرحلة</Label>
-            <Select value={stageFilter} onValueChange={(v) => { setStageFilter(v as any); setClassFilter('all'); setStudentFilter('all'); }}>
+            <Select value={stageFilter} onValueChange={(v) => { setStageFilter(v as any); setClassFilter('all'); setStudentFilter('all'); }} disabled={!isAdmin && !!teacherStage}>
               <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">الكل</SelectItem>
+                {isAdmin && <SelectItem value="all">الكل</SelectItem>}
                 {Object.entries(STAGE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -235,17 +339,35 @@ export default function Reports() {
           <Button onClick={exportExcel} variant="outline" disabled={!filtered.length} className="gap-2">
             <Download className="h-4 w-4" /> تصدير Excel
           </Button>
+          <Button onClick={exportPdf} variant="outline" disabled={!filtered.length} className="gap-2">
+            <FileText className="h-4 w-4" /> تصدير PDF
+          </Button>
         </div>
       </Card>
 
       <Card className="p-5 shadow-soft border-accent/30 bg-accent/5">
-        <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><Send className="h-5 w-5 text-accent" /> التقارير الشهرية لأولياء الأمور</h2>
-        <p className="text-xs text-muted-foreground mb-4">يفتح روابط واتساب جاهزة (wa.me) لكل ولي أمر برسالة مُلخَّصة لإحصائيات الشهر.</p>
+        <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><Send className="h-5 w-5 text-accent" /> التقارير الشهرية</h2>
+        <p className="text-xs text-muted-foreground mb-4">
+          أصدر تقريراً شهرياً لطالب محدد كـ PDF، أو افتح روابط واتساب جاهزة لأولياء الأمور.
+        </p>
         <div className="flex flex-wrap items-end gap-4">
           <div className="space-y-1">
             <Label className="text-xs">الشهر</Label>
             <Input type="month" value={monthlyMonth} onChange={(e) => setMonthlyMonth(e.target.value)} className="w-44" />
           </div>
+          <div className="space-y-1">
+            <Label className="text-xs">الطالب</Label>
+            <Select value={monthlyStudent} onValueChange={setMonthlyStudent}>
+              <SelectTrigger className="w-60"><SelectValue placeholder="جميع الطلاب" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">جميع الطلاب (واتساب)</SelectItem>
+                {visibleStudents.slice(0, 500).map((s) => <SelectItem key={s.id} value={s.id}>{s.full_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button onClick={generateMonthlyForStudent} disabled={monthlyStudent === 'all'} className="gap-2 bg-gradient-primary">
+            <UserIcon className="h-4 w-4" /> تقرير شهري للطالب (PDF)
+          </Button>
           <Button onClick={sendMonthlyReports} disabled={sending} className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2">
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             تجهيز روابط واتساب
