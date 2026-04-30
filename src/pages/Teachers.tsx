@@ -20,7 +20,8 @@ export default function Teachers() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Teacher | null>(null);
-  const [form, setForm] = useState({ full_name: '', email: '', stage: 'primary' as Stage });
+  const [form, setForm] = useState({ full_name: '', email: '', stage: 'primary' as Stage, password: '', is_admin: false });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { document.title = 'المعلمون | نظام الضاحية'; load(); }, []);
 
@@ -31,17 +32,29 @@ export default function Teachers() {
     setTeachers(((ts ?? []) as Teacher[]).map((t) => ({ ...t, is_admin: t.user_id ? adminSet.has(t.user_id) : false })));
   }
 
-  function openNew() { setEditing(null); setForm({ full_name: '', email: '', stage: 'primary' }); setOpen(true); }
-  function openEdit(t: Teacher) { setEditing(t); setForm({ full_name: t.full_name, email: t.email, stage: t.stage }); setOpen(true); }
+  function openNew() { setEditing(null); setForm({ full_name: '', email: '', stage: 'primary', password: '', is_admin: false }); setOpen(true); }
+  function openEdit(t: Teacher) { setEditing(t); setForm({ full_name: t.full_name, email: t.email, stage: t.stage, password: '', is_admin: !!t.is_admin }); setOpen(true); }
 
   async function save() {
     if (!form.full_name || !form.email) { toast.error('الاسم والبريد مطلوبان'); return; }
-    const { error } = editing
-      ? await supabase.from('teachers').update(form).eq('id', editing.id)
-      : await supabase.from('teachers').insert(form);
-    if (error) { toast.error(error.message); return; }
-    toast.success(editing ? 'تم التحديث' : 'تمت الإضافة');
-    setOpen(false); load();
+    setSaving(true);
+    try {
+      if (editing) {
+        const { error } = await supabase.from('teachers')
+          .update({ full_name: form.full_name, email: form.email, stage: form.stage })
+          .eq('id', editing.id);
+        if (error) { toast.error(error.message); return; }
+        toast.success('تم التحديث');
+      } else {
+        if (!form.password || form.password.length < 6) { toast.error('كلمة المرور 6 أحرف على الأقل'); return; }
+        const { data, error } = await supabase.functions.invoke('admin-create-teacher', {
+          body: { email: form.email, password: form.password, full_name: form.full_name, stage: form.stage, is_admin: form.is_admin },
+        });
+        if (error || (data as any)?.error) { toast.error((data as any)?.error || error?.message || 'خطأ'); return; }
+        toast.success('تمت إضافة المعلم وإنشاء الحساب');
+      }
+      setOpen(false); load();
+    } finally { setSaving(false); }
   }
 
   async function remove(t: Teacher) {
