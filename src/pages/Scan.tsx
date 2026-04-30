@@ -4,10 +4,12 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScanLine, CheckCircle2, AlertCircle, Clock, XCircle, LogOut, ArrowLeftRight } from 'lucide-react';
+import { ScanLine, CheckCircle2, AlertCircle, Clock, XCircle, LogOut, ArrowLeftRight, Keyboard, Camera } from 'lucide-react';
 import { STATUS_LABELS, todayISO, type AttendanceStatus } from '@/lib/i18n';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import CameraScanner from '@/components/CameraScanner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface LogEntry { time: string; ok: boolean; text: string; tag?: string }
 
@@ -37,7 +39,11 @@ export default function Scan() {
     const trimmed = code.trim();
     if (!trimmed) return;
     setCode('');
+    await processCode(trimmed);
+    focusInput();
+  }
 
+  async function processCode(trimmed: string) {
     const { data: student, error } = await supabase
       .from('students').select('id, full_name, student_number')
       .eq('barcode', trimmed).maybeSingle();
@@ -45,36 +51,23 @@ export default function Scan() {
     if (error || !student) {
       pushLog(false, `باركود غير معروف: ${trimmed}`);
       toast.error('باركود غير معروف');
-      focusInput();
       return;
     }
 
     const today = todayISO();
-
-    // Check existing attendance for today
     const { data: existing } = await supabase
-      .from('attendance_records')
-      .select('id, status')
-      .eq('student_id', student.id)
-      .eq('date', today)
-      .maybeSingle();
+      .from('attendance_records').select('id, status')
+      .eq('student_id', student.id).eq('date', today).maybeSingle();
 
     if (existing) {
-      // Already attended → look for an unused permission to consume
       const { data: perm } = await supabase
-        .from('permissions')
-        .select('id, status, reason')
-        .eq('student_id', student.id)
-        .eq('date', today)
-        .eq('status', 'pending')
-        .maybeSingle();
+        .from('permissions').select('id, status, reason')
+        .eq('student_id', student.id).eq('date', today).eq('status', 'pending').maybeSingle();
 
       if (perm) {
         const nowIso = new Date().toISOString();
         const { error: updErr } = await supabase
-          .from('permissions')
-          .update({ status: 'used', used_at: nowIso })
-          .eq('id', perm.id);
+          .from('permissions').update({ status: 'used', used_at: nowIso }).eq('id', perm.id);
         if (updErr) {
           pushLog(false, `تعذّر استهلاك الاستذان: ${updErr.message}`);
           toast.error(updErr.message);
@@ -89,11 +82,9 @@ export default function Scan() {
         pushLog(false, `${student.full_name} مسجَّل حضوره مسبقاً اليوم — لا يوجد استذان`, 'مكرر');
         toast.error(`${student.full_name}: مسجَّل بالفعل اليوم`);
       }
-      focusInput();
       return;
     }
 
-    // First scan today → record attendance
     const { error: insErr } = await supabase
       .from('attendance_records')
       .insert({ student_id: student.id, teacher_id: teacherId, status, date: today });
@@ -105,7 +96,6 @@ export default function Scan() {
       pushLog(true, `${student.full_name} (${student.student_number})`, STATUS_LABELS[status]);
       toast.success(`${STATUS_LABELS[status]}: ${student.full_name}`);
     }
-    focusInput();
   }
 
   function focusInput() {
@@ -139,24 +129,35 @@ export default function Scan() {
             ))}
           </div>
 
-          <form onSubmit={handleSubmit}>
-            <div className="relative">
-              <ScanLine className="absolute right-4 top-1/2 h-6 w-6 -translate-y-1/2 text-primary" />
-              <Input
-                ref={inputRef}
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="ALD-..."
-                className="h-16 pr-14 text-center text-xl font-mono tracking-widest shadow-soft"
-                dir="ltr"
-                autoFocus
-              />
-            </div>
-            <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
-              <ArrowLeftRight className="h-3.5 w-3.5" />
-              مسح أول = حضور · مسح ثانٍ = استهلاك استذان الخروج
-            </p>
-          </form>
+          <Tabs defaultValue="keyboard">
+            <TabsList className="mb-4">
+              <TabsTrigger value="keyboard" className="gap-2"><Keyboard className="h-4 w-4" /> ماسح/لوحة مفاتيح</TabsTrigger>
+              <TabsTrigger value="camera" className="gap-2"><Camera className="h-4 w-4" /> كاميرا الهاتف</TabsTrigger>
+            </TabsList>
+            <TabsContent value="keyboard">
+              <form onSubmit={handleSubmit}>
+                <div className="relative">
+                  <ScanLine className="absolute right-4 top-1/2 h-6 w-6 -translate-y-1/2 text-primary" />
+                  <Input
+                    ref={inputRef}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="ALD-..."
+                    className="h-16 pr-14 text-center text-xl font-mono tracking-widest shadow-soft"
+                    dir="ltr"
+                    autoFocus
+                  />
+                </div>
+              </form>
+            </TabsContent>
+            <TabsContent value="camera">
+              <CameraScanner onDetected={(text) => processCode(text.trim())} />
+            </TabsContent>
+          </Tabs>
+          <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+            <ArrowLeftRight className="h-3.5 w-3.5" />
+            مسح أول = حضور · مسح ثانٍ = استهلاك استذان الخروج
+          </p>
         </Card>
 
         <Card className="p-4 shadow-soft">

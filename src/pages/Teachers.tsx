@@ -20,7 +20,8 @@ export default function Teachers() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Teacher | null>(null);
-  const [form, setForm] = useState({ full_name: '', email: '', stage: 'primary' as Stage });
+  const [form, setForm] = useState({ full_name: '', email: '', stage: 'primary' as Stage, password: '', is_admin: false });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { document.title = 'المعلمون | نظام الضاحية'; load(); }, []);
 
@@ -31,17 +32,29 @@ export default function Teachers() {
     setTeachers(((ts ?? []) as Teacher[]).map((t) => ({ ...t, is_admin: t.user_id ? adminSet.has(t.user_id) : false })));
   }
 
-  function openNew() { setEditing(null); setForm({ full_name: '', email: '', stage: 'primary' }); setOpen(true); }
-  function openEdit(t: Teacher) { setEditing(t); setForm({ full_name: t.full_name, email: t.email, stage: t.stage }); setOpen(true); }
+  function openNew() { setEditing(null); setForm({ full_name: '', email: '', stage: 'primary', password: '', is_admin: false }); setOpen(true); }
+  function openEdit(t: Teacher) { setEditing(t); setForm({ full_name: t.full_name, email: t.email, stage: t.stage, password: '', is_admin: !!t.is_admin }); setOpen(true); }
 
   async function save() {
     if (!form.full_name || !form.email) { toast.error('الاسم والبريد مطلوبان'); return; }
-    const { error } = editing
-      ? await supabase.from('teachers').update(form).eq('id', editing.id)
-      : await supabase.from('teachers').insert(form);
-    if (error) { toast.error(error.message); return; }
-    toast.success(editing ? 'تم التحديث' : 'تمت الإضافة');
-    setOpen(false); load();
+    setSaving(true);
+    try {
+      if (editing) {
+        const { error } = await supabase.from('teachers')
+          .update({ full_name: form.full_name, email: form.email, stage: form.stage })
+          .eq('id', editing.id);
+        if (error) { toast.error(error.message); return; }
+        toast.success('تم التحديث');
+      } else {
+        if (!form.password || form.password.length < 6) { toast.error('كلمة المرور 6 أحرف على الأقل'); return; }
+        const { data, error } = await supabase.functions.invoke('admin-create-teacher', {
+          body: { email: form.email, password: form.password, full_name: form.full_name, stage: form.stage, is_admin: form.is_admin },
+        });
+        if (error || (data as any)?.error) { toast.error((data as any)?.error || error?.message || 'خطأ'); return; }
+        toast.success('تمت إضافة المعلم وإنشاء الحساب');
+      }
+      setOpen(false); load();
+    } finally { setSaving(false); }
   }
 
   async function remove(t: Teacher) {
@@ -115,13 +128,25 @@ export default function Teachers() {
                 </SelectContent>
               </Select>
             </div>
+            {!editing && (
+              <>
+                <div className="space-y-2">
+                  <Label>كلمة المرور</Label>
+                  <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} dir="ltr" placeholder="6 أحرف على الأقل" />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={form.is_admin} onChange={(e) => setForm({ ...form, is_admin: e.target.checked })} />
+                  منح صلاحيات إدارية
+                </label>
+              </>
+            )}
             <p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-              لربط المعلم بحساب تسجيل دخول: اطلب منه إنشاء حساب بنفس البريد، ثم من صفحة الإعدادات اربط الحساب بالدور المناسب.
+              {editing ? 'لا يمكن تعديل كلمة المرور من هنا. اطلب من المعلم استخدام "نسيت كلمة المرور".' : 'سيتم إنشاء حساب المعلم تلقائياً بالبريد وكلمة المرور المُدخلة.'}
             </p>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)}>إلغاء</Button>
-            <Button onClick={save} className="bg-gradient-primary">حفظ</Button>
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>إلغاء</Button>
+            <Button onClick={save} disabled={saving} className="bg-gradient-primary">{saving ? 'جارٍ الحفظ...' : 'حفظ'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
