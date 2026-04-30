@@ -2,15 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>AlDahya</title>
     <meta name="description" content="النظام الذكى لتسجيل الحضور لمدرسة الضاحية الأهلية لبنين">
     <meta name="author" content="Lovable" />
 
-    <!-- PWA Meta Tags -->
-    <link rel="manifest" href="/manifest.json">
+    <!-- PWA Meta Tags - Optimized for Fullscreen -->
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="مدرسة الداهية">
     <link rel="apple-touch-icon" href="/assets/school-logo.png">
     <meta name="theme-color" content="#3b82f6">
@@ -31,7 +32,9 @@
     <script>
       if ('serviceWorker' in navigator ) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration failed:', err));
+          navigator.serviceWorker.register('/sw.js').then(reg => {
+            console.log('SW registered');
+          }).catch(err => console.log('SW registration failed:', err));
         });
       }
     </script>
