@@ -7,51 +7,61 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { STATUS_LABELS, STATUS_COLORS, formatDate, todayISO, type AttendanceStatus } from '@/lib/i18n';
+import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, formatDate, todayISO, type AttendanceStatus, type Stage } from '@/lib/i18n';
 import { Loader2, Download, LogOut } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useAuth } from '@/hooks/useAuth';
 
 type Filter = 'all' | AttendanceStatus | 'permission';
 
 interface AttRow {
   kind: 'attendance'; id: string; status: AttendanceStatus; date: string; recorded_at: string;
-  student_name: string; student_number: string; teacher_name: string | null;
+  student_name: string; student_number: string; stage: Stage; class_name: string | null; teacher_name: string | null;
 }
 interface PermRow {
   kind: 'permission'; id: string; status: 'pending' | 'used' | 'returned'; date: string; recorded_at: string;
-  student_name: string; student_number: string; teacher_name: string | null; reason: string;
+  student_name: string; student_number: string; stage: Stage; class_name: string | null; teacher_name: string | null; reason: string;
 }
 type Row = AttRow | PermRow;
 
 const PERM_STATUS_LABELS = { pending: 'استذان معلَّق', used: 'استذان (خرج)', returned: 'استذان (عاد)' } as const;
 
 export default function Attendance() {
+  const { isAdmin, teacherStage } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
   const [date, setDate] = useState(todayISO());
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<Filter>('all');
+  const [statusFilter, setStatusFilter] = useState<Filter>('all');
+  const [stageFilter, setStageFilter] = useState<'all' | Stage>('all');
 
   useEffect(() => { document.title = 'سجل الحضور | نظام الضاحية'; }, []);
   useEffect(() => { load(); }, [date]);
+
+  // إذا كان معلم: تثبيت فلتر المرحلة على مرحلته
+  useEffect(() => {
+    if (!isAdmin && teacherStage) setStageFilter(teacherStage);
+  }, [isAdmin, teacherStage]);
 
   async function load() {
     setLoading(true);
     const [att, perms] = await Promise.all([
       supabase.from('attendance_records')
-        .select('id, status, date, recorded_at, students(full_name, student_number), teachers(full_name)')
+        .select('id, status, date, recorded_at, students(full_name, student_number, stage, classes(name)), teachers(full_name)')
         .eq('date', date).order('recorded_at', { ascending: false }),
       supabase.from('permissions')
-        .select('id, status, date, issued_at, reason, students(full_name, student_number), teachers(full_name)')
+        .select('id, status, date, issued_at, reason, students(full_name, student_number, stage, classes(name)), teachers(full_name)')
         .eq('date', date).order('issued_at', { ascending: false }),
     ]);
     const a: Row[] = ((att.data ?? []) as any[]).map((r) => ({
       kind: 'attendance', id: r.id, status: r.status, date: r.date, recorded_at: r.recorded_at,
       student_name: r.students?.full_name ?? '—', student_number: r.students?.student_number ?? '',
+      stage: r.students?.stage, class_name: r.students?.classes?.name ?? null,
       teacher_name: r.teachers?.full_name ?? null,
     }));
     const p: Row[] = ((perms.data ?? []) as any[]).map((r) => ({
       kind: 'permission', id: r.id, status: r.status, date: r.date, recorded_at: r.issued_at,
       student_name: r.students?.full_name ?? '—', student_number: r.students?.student_number ?? '',
+      stage: r.students?.stage, class_name: r.students?.classes?.name ?? null,
       teacher_name: r.teachers?.full_name ?? null, reason: r.reason,
     }));
     setRows([...a, ...p].sort((x, y) => y.recorded_at.localeCompare(x.recorded_at)));
@@ -59,10 +69,12 @@ export default function Attendance() {
   }
 
   const filtered = useMemo(() => rows.filter((r) => {
-    if (filter === 'all') return true;
-    if (filter === 'permission') return r.kind === 'permission';
-    return r.kind === 'attendance' && r.status === filter;
-  }), [rows, filter]);
+    if (!isAdmin && teacherStage && r.stage !== teacherStage) return false;
+    if (stageFilter !== 'all' && r.stage !== stageFilter) return false;
+    if (statusFilter === 'all') return true;
+    if (statusFilter === 'permission') return r.kind === 'permission';
+    return r.kind === 'attendance' && r.status === statusFilter;
+  }), [rows, statusFilter, stageFilter, isAdmin, teacherStage]);
 
   function exportExcel() {
     const data = filtered.map((r) => ({
@@ -70,6 +82,8 @@ export default function Attendance() {
       'التاريخ': r.date,
       'الطالب': r.student_name,
       'رقم الطالب': r.student_number,
+      'المرحلة': STAGE_LABELS[r.stage] ?? '',
+      'الفصل': r.class_name ?? '',
       'الحالة': r.kind === 'attendance' ? STATUS_LABELS[r.status] : PERM_STATUS_LABELS[r.status],
       'سبب الاستذان': r.kind === 'permission' ? r.reason : '',
       'المعلم': r.teacher_name ?? '',
@@ -94,8 +108,18 @@ export default function Attendance() {
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">تصفية</Label>
-            <Select value={filter} onValueChange={(v) => setFilter(v as Filter)}>
+            <Label className="text-xs">المرحلة</Label>
+            <Select value={stageFilter} onValueChange={(v) => setStageFilter(v as any)} disabled={!isAdmin && !!teacherStage}>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {isAdmin && <SelectItem value="all">الكل</SelectItem>}
+                {Object.entries(STAGE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">الحالة</Label>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as Filter)}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">الكل</SelectItem>
@@ -121,6 +145,8 @@ export default function Attendance() {
               <TableRow>
                 <TableHead>الطالب</TableHead>
                 <TableHead>الرقم</TableHead>
+                <TableHead>المرحلة</TableHead>
+                <TableHead>الفصل</TableHead>
                 <TableHead>الحالة</TableHead>
                 <TableHead>تفاصيل</TableHead>
                 <TableHead>المعلم</TableHead>
@@ -132,6 +158,8 @@ export default function Attendance() {
                 <TableRow key={r.kind + r.id}>
                   <TableCell className="font-medium">{r.student_name}</TableCell>
                   <TableCell className="font-mono text-xs">{r.student_number}</TableCell>
+                  <TableCell><Badge variant="secondary">{STAGE_LABELS[r.stage] ?? '—'}</Badge></TableCell>
+                  <TableCell>{r.class_name ?? '—'}</TableCell>
                   <TableCell>
                     {r.kind === 'attendance'
                       ? <Badge className={STATUS_COLORS[r.status]} variant="outline">{STATUS_LABELS[r.status]}</Badge>
@@ -142,7 +170,7 @@ export default function Attendance() {
                   <TableCell className="text-xs text-muted-foreground" dir="ltr">{new Date(r.recorded_at).toLocaleTimeString('ar-SA')}</TableCell>
                 </TableRow>
               ))}
-              {!filtered.length && <TableRow><TableCell colSpan={6} className="py-12 text-center text-muted-foreground">لا توجد سجلات</TableCell></TableRow>}
+              {!filtered.length && <TableRow><TableCell colSpan={8} className="py-12 text-center text-muted-foreground">لا توجد سجلات</TableCell></TableRow>}
             </TableBody>
           </Table>
         )}
