@@ -1,18 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Pencil, Trash2, ExternalLink, Loader2 } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, ExternalLink, Loader2, Upload, Download, Printer, FileDown } from 'lucide-react';
 import { STAGE_LABELS, type Stage } from '@/lib/i18n';
 import { useAuth } from '@/hooks/useAuth';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
+import { downloadBarcodeSVG, printBarcodes } from '@/lib/barcode';
+import { useSchoolSettings } from '@/lib/school';
 
 interface Student {
   id: string;
@@ -29,23 +33,26 @@ interface ClassRow { id: string; name: string; stage: Stage }
 
 export default function Students() {
   const { isAdmin } = useAuth();
+  const settings = useSchoolSettings();
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [search, setSearch] = useState('');
+  const [stageFilter, setStageFilter] = useState<string>('all');
+  const [classFilter, setClassFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Student | null>(null);
   const [form, setForm] = useState({ student_number: '', full_name: '', stage: 'primary' as Stage, class_id: '', parent_phone: '', notes: '' });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
 
-  useEffect(() => {
-    document.title = 'الطلاب | نظام الضاحية';
-    load();
-  }, []);
+  useEffect(() => { document.title = 'الطلاب | نظام الضاحية'; load(); }, []);
 
   async function load() {
     setLoading(true);
     const [s, c] = await Promise.all([
-      supabase.from('students').select('*, classes(name)').order('full_name'),
+      supabase.from('students').select('*, classes(name)').order('full_name').limit(2000),
       supabase.from('classes').select('id, name, stage').order('name'),
     ]);
     setStudents((s.data ?? []) as Student[]);
@@ -53,9 +60,15 @@ export default function Students() {
     setLoading(false);
   }
 
+  function nextStudentNumber(): string {
+    const nums = students.map((s) => parseInt(s.student_number, 10)).filter((n) => !isNaN(n));
+    const max = nums.length ? Math.max(...nums) : 1000;
+    return String(max + 1);
+  }
+
   function openNew() {
     setEditing(null);
-    setForm({ student_number: '', full_name: '', stage: 'primary', class_id: '', parent_phone: '', notes: '' });
+    setForm({ student_number: nextStudentNumber(), full_name: '', stage: 'primary', class_id: '', parent_phone: '', notes: '' });
     setOpen(true);
   }
   function openEdit(s: Student) {
@@ -68,36 +81,141 @@ export default function Students() {
   }
 
   async function save() {
-    if (!form.student_number || !form.full_name) { toast.error('الاسم ورقم الطالب مطلوبان'); return; }
+    if (!form.full_name) { toast.error('الاسم مطلوب'); return; }
+    const studentNumber = form.student_number || nextStudentNumber();
     const payload = {
-      student_number: form.student_number,
+      student_number: studentNumber,
       full_name: form.full_name,
       stage: form.stage,
       class_id: form.class_id || null,
       parent_phone: form.parent_phone || null,
       notes: form.notes || null,
-      barcode: `ALD-${form.student_number}`,
+      barcode: `ALD-${studentNumber}`,
     };
     const { error } = editing
       ? await supabase.from('students').update(payload).eq('id', editing.id)
       : await supabase.from('students').insert(payload);
     if (error) { toast.error(error.message); return; }
     toast.success(editing ? 'تم تحديث الطالب' : 'تمت إضافة الطالب');
-    setOpen(false);
-    load();
+    setOpen(false); load();
   }
 
   async function remove(s: Student) {
     if (!confirm(`حذف الطالب ${s.full_name}؟`)) return;
     const { error } = await supabase.from('students').delete().eq('id', s.id);
     if (error) { toast.error(error.message); return; }
-    toast.success('تم الحذف');
-    load();
+    toast.success('تم الحذف'); load();
   }
 
-  const filtered = students.filter((s) =>
-    !search || s.full_name.includes(search) || s.student_number.includes(search) || s.barcode.includes(search),
-  );
+  function downloadTemplate() {
+    const ws = XLSX.utils.json_to_sheet([
+      { 'الاسم الكامل': 'أحمد محمد', 'رقم الطالب': '1001', 'المرحلة': 'ابتدائي', 'الفصل': '', 'هاتف ولي الأمر': '0555555555', 'ملاحظات': '' },
+    ]);
+    (ws as any)['!views'] = [{ RTL: true }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'الطلاب');
+    XLSX.writeFile(wb, 'قالب_استيراد_الطلاب.xlsx');
+  }
+
+  function exportExcel() {
+    const data = students.map((s) => ({
+      'رقم الطالب': s.student_number,
+      'الاسم الكامل': s.full_name,
+      'المرحلة': STAGE_LABELS[s.stage],
+      'الفصل': s.classes?.name ?? '',
+      'هاتف ولي الأمر': s.parent_phone ?? '',
+      'الباركود': s.barcode,
+      'ملاحظات': s.notes ?? '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    (ws as any)['!views'] = [{ RTL: true }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'الطلاب');
+    XLSX.writeFile(wb, `الطلاب_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
+  const stageReverse: Record<string, Stage> = { 'ابتدائي': 'primary', 'متوسط': 'intermediate', 'ثانوي': 'secondary', primary: 'primary', intermediate: 'intermediate', secondary: 'secondary' };
+
+  async function handleImport(file: File) {
+    setImporting(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<any>(ws, { defval: '' });
+      if (!rows.length) { toast.error('الملف فارغ'); return; }
+
+      const classByName = new Map(classes.map((c) => [c.name.trim(), c]));
+      let baseNum = parseInt(nextStudentNumber(), 10);
+      const payloads: any[] = [];
+      const errors: string[] = [];
+
+      rows.forEach((r, i) => {
+        const name = String(r['الاسم الكامل'] ?? r['الاسم'] ?? r['name'] ?? '').trim();
+        if (!name) { errors.push(`السطر ${i + 2}: لا يوجد اسم`); return; }
+        const stageRaw = String(r['المرحلة'] ?? r['stage'] ?? 'ابتدائي').trim();
+        const stage = stageReverse[stageRaw] ?? 'primary';
+        const numRaw = String(r['رقم الطالب'] ?? r['number'] ?? '').trim();
+        const studentNumber = numRaw || String(baseNum++);
+        const className = String(r['الفصل'] ?? r['class'] ?? '').trim();
+        const cls = className ? classByName.get(className) : null;
+        payloads.push({
+          student_number: studentNumber,
+          full_name: name,
+          stage,
+          class_id: cls?.id ?? null,
+          parent_phone: String(r['هاتف ولي الأمر'] ?? r['phone'] ?? '').trim() || null,
+          notes: String(r['ملاحظات'] ?? r['notes'] ?? '').trim() || null,
+          barcode: `ALD-${studentNumber}`,
+        });
+      });
+
+      if (!payloads.length) { toast.error('لا توجد صفوف صالحة'); return; }
+
+      // Upsert in chunks
+      let inserted = 0;
+      for (let i = 0; i < payloads.length; i += 200) {
+        const chunk = payloads.slice(i, i + 200);
+        const { error } = await supabase.from('students').upsert(chunk, { onConflict: 'student_number' });
+        if (error) { errors.push(error.message); break; }
+        inserted += chunk.length;
+      }
+      if (errors.length) toast.error(`أُدخل ${inserted}. أخطاء: ${errors.slice(0, 2).join(' | ')}`);
+      else toast.success(`تم استيراد ${inserted} طالب`);
+      load();
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function toggleAll(visible: Student[]) {
+    setSelected((prev) => {
+      const allChecked = visible.every((s) => prev.has(s.id));
+      if (allChecked) return new Set();
+      return new Set(visible.map((s) => s.id));
+    });
+  }
+
+  function printSelected() {
+    const items = students.filter((s) => selected.has(s.id));
+    if (!items.length) { toast.error('لم يتم اختيار طلاب'); return; }
+    printBarcodes(items.map((s) => ({ name: s.full_name, number: s.student_number, barcode: s.barcode, class_name: s.classes?.name ?? null })), settings?.school_name);
+  }
+
+  const filtered = students.filter((s) => {
+    if (stageFilter !== 'all' && s.stage !== stageFilter) return false;
+    if (classFilter !== 'all' && (s.class_id ?? '') !== classFilter) return false;
+    if (search && !(s.full_name.includes(search) || s.student_number.includes(search) || s.barcode.includes(search))) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -107,18 +225,43 @@ export default function Students() {
           <p className="mt-1 text-sm text-muted-foreground">{students.length} طالب مسجَّل</p>
         </div>
         {isAdmin && (
-          <Button onClick={openNew} className="bg-gradient-primary shadow-soft">
-            <Plus className="ml-2 h-4 w-4" /> إضافة طالب
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleImport(e.target.files[0])} />
+            <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={importing} className="gap-2">
+              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} استيراد Excel
+            </Button>
+            <Button variant="outline" onClick={downloadTemplate} className="gap-2"><FileDown className="h-4 w-4" /> قالب</Button>
+            <Button variant="outline" onClick={exportExcel} className="gap-2"><Download className="h-4 w-4" /> تصدير Excel</Button>
+            <Button onClick={openNew} className="bg-gradient-primary shadow-soft"><Plus className="ml-2 h-4 w-4" /> إضافة طالب</Button>
+          </div>
         )}
       </header>
 
       <Card className="shadow-soft">
-        <div className="border-b border-border/40 p-4">
-          <div className="relative max-w-md">
+        <div className="border-b border-border/40 p-4 flex flex-wrap gap-3 items-end">
+          <div className="relative max-w-md flex-1 min-w-[220px]">
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث بالاسم أو الرقم أو الباركود..." className="pr-10" />
           </div>
+          <Select value={stageFilter} onValueChange={setStageFilter}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="المرحلة" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل المراحل</SelectItem>
+              {Object.entries(STAGE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={classFilter} onValueChange={setClassFilter}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="الفصل" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل الفصول</SelectItem>
+              {classes.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {selected.size > 0 && (
+            <Button onClick={printSelected} className="gap-2 bg-accent text-accent-foreground hover:bg-accent/90">
+              <Printer className="h-4 w-4" /> طباعة {selected.size} باركود
+            </Button>
+          )}
         </div>
 
         {loading ? (
@@ -127,24 +270,34 @@ export default function Students() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox checked={filtered.length > 0 && filtered.every((s) => selected.has(s.id))} onCheckedChange={() => toggleAll(filtered)} />
+                </TableHead>
                 <TableHead>رقم الطالب</TableHead>
                 <TableHead>الاسم</TableHead>
                 <TableHead>المرحلة</TableHead>
                 <TableHead>الفصل</TableHead>
-                <TableHead>هاتف ولي الأمر</TableHead>
+                <TableHead>الباركود</TableHead>
                 <TableHead className="text-left">إجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((s) => (
-                <TableRow key={s.id}>
+                <TableRow key={s.id} data-state={selected.has(s.id) ? 'selected' : undefined}>
+                  <TableCell><Checkbox checked={selected.has(s.id)} onCheckedChange={() => toggleSelect(s.id)} /></TableCell>
                   <TableCell className="font-mono text-xs">{s.student_number}</TableCell>
                   <TableCell className="font-medium">{s.full_name}</TableCell>
                   <TableCell><Badge variant="secondary">{STAGE_LABELS[s.stage]}</Badge></TableCell>
                   <TableCell>{s.classes?.name ?? '—'}</TableCell>
-                  <TableCell className="font-mono text-xs" dir="ltr">{s.parent_phone ?? '—'}</TableCell>
+                  <TableCell className="font-mono text-xs">{s.barcode}</TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" title="تحميل الباركود" onClick={() => downloadBarcodeSVG(s.barcode, `${s.barcode}.svg`)}>
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" title="طباعة الباركود" onClick={() => printBarcodes([{ name: s.full_name, number: s.student_number, barcode: s.barcode, class_name: s.classes?.name ?? null }], settings?.school_name)}>
+                        <Printer className="h-4 w-4" />
+                      </Button>
                       <Button asChild variant="ghost" size="icon"><Link to={`/students/${s.id}`}><ExternalLink className="h-4 w-4" /></Link></Button>
                       {isAdmin && <>
                         <Button variant="ghost" size="icon" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
@@ -155,7 +308,7 @@ export default function Students() {
                 </TableRow>
               ))}
               {filtered.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="py-12 text-center text-muted-foreground">لا توجد نتائج</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground">لا توجد نتائج</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -166,7 +319,10 @@ export default function Students() {
         <DialogContent dir="rtl">
           <DialogHeader><DialogTitle>{editing ? 'تعديل طالب' : 'إضافة طالب'}</DialogTitle></DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2"><Label>رقم الطالب</Label><Input value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })} /></div>
+            <div className="space-y-2">
+              <Label>رقم الطالب <span className="text-xs text-muted-foreground">(تلقائي إذا تُرك فارغاً)</span></Label>
+              <Input value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })} />
+            </div>
             <div className="space-y-2"><Label>الاسم الكامل</Label><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></div>
             <div className="space-y-2">
               <Label>المرحلة</Label>
