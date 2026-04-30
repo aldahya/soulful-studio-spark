@@ -15,7 +15,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
-import { downloadBarcodeSVG, printBarcodes } from '@/lib/barcode';
+import { downloadBarcodeSVG, printBarcodes, stageLabel } from '@/lib/barcode';
 import { useSchoolSettings } from '@/lib/school';
 
 interface Student {
@@ -207,7 +207,11 @@ export default function Students() {
   function printSelected() {
     const items = students.filter((s) => selected.has(s.id));
     if (!items.length) { toast.error('لم يتم اختيار طلاب'); return; }
-    printBarcodes(items.map((s) => ({ name: s.full_name, number: s.student_number, barcode: s.barcode, class_name: s.classes?.name ?? null })), settings?.school_name);
+    printBarcodes(items.map((s) => ({
+      name: s.full_name, number: s.student_number, barcode: s.barcode,
+      class_name: s.classes?.name ?? null, stage_label: stageLabel(s.stage),
+      parent_phone: s.parent_phone,
+    })), settings?.school_name, settings?.subtitle ?? '');
   }
 
   const filtered = students.filter((s) => {
@@ -295,7 +299,7 @@ export default function Students() {
                       <Button variant="ghost" size="icon" title="تحميل الباركود" onClick={() => downloadBarcodeSVG(s.barcode, `${s.barcode}.svg`)}>
                         <Download className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" title="طباعة الباركود" onClick={() => printBarcodes([{ name: s.full_name, number: s.student_number, barcode: s.barcode, class_name: s.classes?.name ?? null }], settings?.school_name)}>
+                      <Button variant="ghost" size="icon" title="طباعة الباركود" onClick={() => printBarcodes([{ name: s.full_name, number: s.student_number, barcode: s.barcode, class_name: s.classes?.name ?? null, stage_label: stageLabel(s.stage), parent_phone: s.parent_phone }], settings?.school_name, settings?.subtitle ?? '')}>
                         <Printer className="h-4 w-4" />
                       </Button>
                       <Button asChild variant="ghost" size="icon"><Link to={`/students/${s.id}`}><ExternalLink className="h-4 w-4" /></Link></Button>
