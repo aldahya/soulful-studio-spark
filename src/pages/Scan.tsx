@@ -4,35 +4,54 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScanLine, CheckCircle2, AlertCircle, Clock, XCircle, LogOut, ArrowLeftRight, Keyboard, Camera } from 'lucide-react';
-import { STATUS_LABELS, todayISO, type AttendanceStatus } from '@/lib/i18n';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ScanLine, CheckCircle2, AlertCircle, Clock, XCircle, LogOut, ArrowLeftRight, Keyboard, Camera, ShieldAlert } from 'lucide-react';
+import { STATUS_LABELS, STAGE_LABELS, todayISO, type AttendanceStatus } from '@/lib/i18n';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import CameraScanner from '@/components/CameraScanner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface LogEntry { time: string; ok: boolean; text: string; tag?: string }
+interface DupContext {
+  studentId: string; studentName: string; studentNumber: string; existingStatus: AttendanceStatus;
+}
+
+const RESCAN_COOLDOWN_MS = 2500; // منع المسح المتكرر بالخطأ
 
 export default function Scan() {
-  const { user } = useAuth();
+  const { user, isAdmin, teacherId, teacherStage } = useAuth();
   const [code, setCode] = useState('');
   const [status, setStatus] = useState<AttendanceStatus>('present');
   const [log, setLog] = useState<LogEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [teacherId, setTeacherId] = useState<string | null>(null);
+  const lastScan = useRef<{ code: string; at: number }>({ code: '', at: 0 });
+  const processing = useRef(false);
+
+  // duplicate dialog
+  const [dupOpen, setDupOpen] = useState(false);
+  const [dupCtx, setDupCtx] = useState<DupContext | null>(null);
+
+  // permission dialog
+  const [permOpen, setPermOpen] = useState(false);
+  const [permReason, setPermReason] = useState('خروج من المدرسة');
+  const [permNotes, setPermNotes] = useState('');
 
   useEffect(() => {
     document.title = 'مسح الباركود | نظام الضاحية';
     inputRef.current?.focus();
-    if (user) {
-      supabase.from('teachers').select('id').eq('user_id', user.id).maybeSingle()
-        .then(({ data }) => setTeacherId(data?.id ?? null));
-    }
   }, [user]);
 
   function pushLog(ok: boolean, text: string, tag?: string) {
     setLog((l) => [{ time: new Date().toLocaleTimeString('ar-SA'), ok, text, tag }, ...l].slice(0, 30));
   }
+  function focusInput() { setTimeout(() => inputRef.current?.focus(), 50); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,62 +63,121 @@ export default function Scan() {
   }
 
   async function processCode(trimmed: string) {
-    const { data: student, error } = await supabase
-      .from('students').select('id, full_name, student_number')
-      .eq('barcode', trimmed).maybeSingle();
-
-    if (error || !student) {
-      pushLog(false, `باركود غير معروف: ${trimmed}`);
-      toast.error('باركود غير معروف');
+    if (processing.current) return;
+    // منع المسح المتكرر بالخطأ خلال نافذة قصيرة
+    const now = Date.now();
+    if (lastScan.current.code === trimmed && now - lastScan.current.at < RESCAN_COOLDOWN_MS) {
+      pushLog(false, `تجاهل مسح مكرر سريع: ${trimmed}`, 'تكرار');
       return;
     }
+    lastScan.current = { code: trimmed, at: now };
+    processing.current = true;
+    try {
+      const { data: student, error } = await supabase
+        .from('students').select('id, full_name, student_number, stage')
+        .eq('barcode', trimmed).maybeSingle();
 
-    const today = todayISO();
-    const { data: existing } = await supabase
-      .from('attendance_records').select('id, status')
-      .eq('student_id', student.id).eq('date', today).maybeSingle();
-
-    if (existing) {
-      const { data: perm } = await supabase
-        .from('permissions').select('id, status, reason')
-        .eq('student_id', student.id).eq('date', today).eq('status', 'pending').maybeSingle();
-
-      if (perm) {
-        const nowIso = new Date().toISOString();
-        const { error: updErr } = await supabase
-          .from('permissions').update({ status: 'used', used_at: nowIso }).eq('id', perm.id);
-        if (updErr) {
-          pushLog(false, `تعذّر استهلاك الاستذان: ${updErr.message}`);
-          toast.error(updErr.message);
-        } else {
-          await supabase.from('permission_logs').insert({
-            permission_id: perm.id, action: 'used', actor_id: user!.id,
-          });
-          pushLog(true, `${student.full_name} (${student.student_number}) — تم تسجيل الخروج`, 'استذان');
-          toast.success(`تم استهلاك الاستذان: ${student.full_name}`);
-        }
-      } else {
-        pushLog(false, `${student.full_name} مسجَّل حضوره مسبقاً اليوم — لا يوجد استذان`, 'مكرر');
-        toast.error(`${student.full_name}: مسجَّل بالفعل اليوم`);
+      if (error || !student) {
+        pushLog(false, `باركود غير معروف: ${trimmed}`);
+        toast.error('باركود غير معروف');
+        return;
       }
-      return;
-    }
 
-    const { error: insErr } = await supabase
-      .from('attendance_records')
-      .insert({ student_id: student.id, teacher_id: teacherId, status, date: today });
+      // تقييد المعلم بمرحلته
+      if (!isAdmin && teacherStage && student.stage !== teacherStage) {
+        pushLog(false, `${student.full_name}: من مرحلة ${STAGE_LABELS[student.stage as keyof typeof STAGE_LABELS]} — خارج صلاحياتك`, 'مرفوض');
+        toast.error(`لا يمكنك مسح طالب من مرحلة أخرى (${STAGE_LABELS[student.stage as keyof typeof STAGE_LABELS]})`);
+        return;
+      }
 
-    if (insErr) {
-      pushLog(false, `فشل تسجيل ${student.full_name}: ${insErr.message}`);
-      toast.error(insErr.message);
-    } else {
-      pushLog(true, `${student.full_name} (${student.student_number})`, STATUS_LABELS[status]);
-      toast.success(`${STATUS_LABELS[status]}: ${student.full_name}`);
+      const today = todayISO();
+      const { data: existing } = await supabase
+        .from('attendance_records').select('id, status')
+        .eq('student_id', student.id).eq('date', today).maybeSingle();
+
+      if (existing) {
+        // فحص استذان معلَّق — إن وُجد نستهلكه مباشرة
+        const { data: perm } = await supabase
+          .from('permissions').select('id, status')
+          .eq('student_id', student.id).eq('date', today).eq('status', 'pending').maybeSingle();
+
+        if (perm) {
+          const nowIso = new Date().toISOString();
+          const { error: updErr } = await supabase
+            .from('permissions').update({ status: 'used', used_at: nowIso }).eq('id', perm.id);
+          if (updErr) {
+            pushLog(false, `تعذّر استهلاك الاستذان: ${updErr.message}`);
+            toast.error(updErr.message);
+          } else {
+            await supabase.from('permission_logs').insert({
+              permission_id: perm.id, action: 'used', actor_id: user!.id,
+            });
+            pushLog(true, `${student.full_name} (${student.student_number}) — تم تسجيل الخروج`, 'استذان');
+            toast.success(`تم استهلاك الاستذان: ${student.full_name}`);
+          }
+          return;
+        }
+
+        // لا يوجد استذان — نسأل المستخدم: تجاهل أم إصدار استذان
+        setDupCtx({
+          studentId: student.id,
+          studentName: student.full_name,
+          studentNumber: student.student_number,
+          existingStatus: existing.status as AttendanceStatus,
+        });
+        setDupOpen(true);
+        return;
+      }
+
+      const { error: insErr } = await supabase
+        .from('attendance_records')
+        .insert({ student_id: student.id, teacher_id: teacherId, status, date: today });
+
+      if (insErr) {
+        pushLog(false, `فشل تسجيل ${student.full_name}: ${insErr.message}`);
+        toast.error(insErr.message);
+      } else {
+        pushLog(true, `${student.full_name} (${student.student_number})`, STATUS_LABELS[status]);
+        toast.success(`${STATUS_LABELS[status]}: ${student.full_name}`);
+      }
+    } finally {
+      processing.current = false;
     }
   }
 
-  function focusInput() {
-    setTimeout(() => inputRef.current?.focus(), 50);
+  function dismissDup() {
+    setDupOpen(false);
+    pushLog(false, `${dupCtx?.studentName} مسجَّل مسبقاً اليوم — تم التجاهل`, 'مكرر');
+    setDupCtx(null);
+    focusInput();
+  }
+  function openPermFromDup() {
+    setDupOpen(false);
+    setPermReason('خروج من المدرسة');
+    setPermNotes('');
+    setPermOpen(true);
+  }
+  async function createPermission() {
+    if (!dupCtx) return;
+    const { error } = await supabase.from('permissions').insert({
+      student_id: dupCtx.studentId,
+      teacher_id: teacherId,
+      issued_by: user!.id,
+      reason: permReason || 'خروج من المدرسة',
+      notes: permNotes || null,
+      date: todayISO(),
+      status: 'pending',
+    });
+    if (error) {
+      toast.error(error.message);
+      pushLog(false, `فشل إصدار استذان لـ ${dupCtx.studentName}: ${error.message}`);
+    } else {
+      toast.success(`تم إصدار استذان لـ ${dupCtx.studentName}`);
+      pushLog(true, `${dupCtx.studentName} (${dupCtx.studentNumber}) — استذان جديد`, 'استذان جديد');
+    }
+    setPermOpen(false);
+    setDupCtx(null);
+    focusInput();
   }
 
   const statusButtons: { value: AttendanceStatus; icon: typeof CheckCircle2; cls: string }[] = [
@@ -110,9 +188,16 @@ export default function Scan() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-3xl font-extrabold">مسح الباركود</h1>
-        <p className="mt-1 text-sm text-muted-foreground">المسح الأول يسجّل الحضور، والمسح الثاني يستهلك استذان الخروج إن وُجد</p>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold">مسح الباركود</h1>
+          <p className="mt-1 text-sm text-muted-foreground">المسح الأول يسجّل الحضور، والمسح الثاني يستهلك استذان الخروج إن وُجد</p>
+        </div>
+        {!isAdmin && teacherStage && (
+          <Badge variant="outline" className="gap-1 border-primary/30 bg-primary/5 text-primary">
+            <ShieldAlert className="h-3 w-3" /> مرحلتك: {STAGE_LABELS[teacherStage]}
+          </Badge>
+        )}
       </header>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -171,7 +256,7 @@ export default function Scan() {
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{e.time}</span>
                   {e.tag && <Badge variant="outline" className="text-xs gap-1">
-                    {e.tag === 'استذان' && <LogOut className="h-3 w-3" />}
+                    {e.tag.includes('استذان') && <LogOut className="h-3 w-3" />}
                     {e.tag}
                   </Badge>}
                 </div>
@@ -181,6 +266,52 @@ export default function Scan() {
           </div>
         </Card>
       </div>
+
+      {/* Duplicate scan dialog */}
+      <AlertDialog open={dupOpen} onOpenChange={(o) => { if (!o) dismissDup(); }}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>الطالب مسجَّل مسبقاً اليوم</AlertDialogTitle>
+            <AlertDialogDescription>
+              {dupCtx && (<>
+                تم تسجيل حضور <b>{dupCtx.studentName}</b> ({dupCtx.studentNumber}) كـ
+                <b className="px-1">{STATUS_LABELS[dupCtx.existingStatus]}</b>
+                — هل تريد إصدار <b>استذان خروج</b> له، أم تجاهل المسح؟
+              </>)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={dismissDup}>تجاهل المسح</AlertDialogCancel>
+            <AlertDialogAction onClick={openPermFromDup} className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2">
+              <LogOut className="h-4 w-4" /> إصدار استذان
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Permission form */}
+      <Dialog open={permOpen} onOpenChange={setPermOpen}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>إصدار استذان — {dupCtx?.studentName}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>السبب</Label>
+              <Input value={permReason} onChange={(e) => setPermReason(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>ملاحظات (اختياري)</Label>
+              <Textarea value={permNotes} onChange={(e) => setPermNotes(e.target.value)} rows={3} />
+            </div>
+            <p className="text-xs text-muted-foreground">سيتم استهلاك الاستذان تلقائياً عند المسح التالي للطالب اليوم.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setPermOpen(false); setDupCtx(null); focusInput(); }}>إلغاء</Button>
+            <Button onClick={createPermission} className="bg-gradient-primary">حفظ الاستذان</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
