@@ -18,10 +18,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # تثبيت المكتبات الأساسية مع تجاهل الأخطاء البسيطة
           npm install --legacy-peer-deps
-          # إجبار تثبيت المكتبات الناقصة
-          npm install xlsx lucide-react --save
+          # تثبيت كافة المكتبات الإضافية التي يحتاجها المشروع
+          npm install xlsx jsbarcode lucide-react @tanstack/react-query @supabase/supabase-js --save
 
       - name: Build project
         run: |
