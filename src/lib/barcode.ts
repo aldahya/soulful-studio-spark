@@ -1,8 +1,14 @@
 import JsBarcode from 'jsbarcode';
 
+// CODE128 يدعم ASCII فقط — ننظّف أي حروف غير لاتينية (عربية مثلاً)
+export function sanitizeBarcode(code: string): string {
+  const cleaned = (code || '').replace(/[^\x20-\x7E]/g, '').trim();
+  return cleaned || 'ALD-UNKNOWN';
+}
+
 export function renderBarcodeSvgString(code: string, opts?: { width?: number; height?: number }): string {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  JsBarcode(svg as unknown as SVGSVGElement, code, {
+  JsBarcode(svg as unknown as SVGSVGElement, sanitizeBarcode(code), {
     format: 'CODE128',
     width: opts?.width ?? 2,
     height: opts?.height ?? 70,

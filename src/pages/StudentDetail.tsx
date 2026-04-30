@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowRight, Printer, MessageCircle, Loader2 } from 'lucide-react';
 import { STAGE_LABELS, STATUS_LABELS, STATUS_COLORS, type Stage, type AttendanceStatus, whatsAppLink, formatDate } from '@/lib/i18n';
 import JsBarcode from 'jsbarcode';
+import { sanitizeBarcode } from '@/lib/barcode';
 import { useSchoolSettings, SCHOOL_LOGO } from '@/lib/school';
 
 interface Student {
@@ -38,7 +39,7 @@ export default function StudentDetail() {
 
   useEffect(() => {
     if (student && barcodeRef.current) {
-      JsBarcode(barcodeRef.current, student.barcode, { format: 'CODE128', width: 2.2, height: 80, fontSize: 16, margin: 8 });
+      JsBarcode(barcodeRef.current, sanitizeBarcode(student.barcode), { format: 'CODE128', width: 2.2, height: 80, fontSize: 16, margin: 8 });
     }
   }, [student]);
 
