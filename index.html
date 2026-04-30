@@ -8,12 +8,12 @@
     <meta name="author" content="Lovable" />
 
     <!-- PWA Meta Tags - Optimized for Fullscreen -->
-    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials">
+    <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="مدرسة الداهية">
-    <link rel="apple-touch-icon" href="/000.png">
+    <link rel="apple-touch-icon" href="000.png">
     <meta name="theme-color" content="#3b82f6">
 
     <meta property="og:type" content="website" />
@@ -32,7 +32,7 @@
     <script>
       if ('serviceWorker' in navigator ) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').then(reg => {
+          navigator.serviceWorker.register('sw.js').then(reg => {
             console.log('SW registered');
           }).catch(err => console.log('SW registration failed:', err));
         });
