@@ -18,9 +18,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install
-          # تثبيت المكتبات الناقصة التي طلبها النظام
-          npm install xlsx lucide-react
+          # تثبيت المكتبات الأساسية مع تجاهل الأخطاء البسيطة
+          npm install --legacy-peer-deps
+          # إجبار تثبيت المكتبات الناقصة
+          npm install xlsx lucide-react --save
 
       - name: Build project
         run: |
