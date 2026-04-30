@@ -23,6 +23,7 @@ jobs:
 
       - name: Build project
         run: |
+          # حذف استدعاء lovable-tagger لتجنب أخطاء البناء
           sed -i "/lovable-tagger/d" vite.config.ts
           npm run build
         env:
@@ -31,25 +32,31 @@ jobs:
 
       - name: Prepare Files for Deployment
         run: |
-          # التأكد من وجود الملفات ونسخها للمجلد النهائي
+          # 1. نسخ ملفات PWA يدوياً لضمان وجودها في المجلد النهائي dist
           cp public/manifest.json dist/ || echo "manifest.json not found"
           cp public/sw.js dist/ || echo "sw.js not found"
           cp public/000.png dist/ || echo "000.png not found"
           
-          # إنشاء ملف .htaccess
+          # 2. إنشاء ملف .htaccess مطور يسمح بالوصول للملفات المباشرة (حل مشكلة 404 )
           echo '<IfModule mod_rewrite.c>
             RewriteEngine On
             RewriteBase /
+            
+            # إذا كان الملف موجوداً فعلياً (مثل 000.png)، افتحه مباشرة ولا تطبق القواعد التالية
+            RewriteCond %{REQUEST_FILENAME} -f
+            RewriteRule ^ - [L]
+            
+            # قواعد React Routing الأساسية
             RewriteRule ^index\.html$ - [L]
             RewriteCond %{REQUEST_FILENAME} !-f
             RewriteCond %{REQUEST_FILENAME} !-d
             RewriteRule . /index.html [L]
           </IfModule>' > dist/.htaccess
           
-          # إصلاح مسارات الأصول في index.html
+          # 3. إصلاح مسارات الأصول في index.html
           sed -i "s|/assets/|assets/|g" dist/index.html
           
-          # عرض قائمة الملفات للتأكد (ستظهر في سجلات GitHub )
+          # 4. عرض قائمة الملفات في السجلات للتأكد
           ls -R dist/
 
       - name: Deploy via FTP
@@ -62,4 +69,3 @@ jobs:
           server-dir: /public_html/aldaahia/
           protocol: ftp
           port: 21
-          dangerous-clean-slate: false
