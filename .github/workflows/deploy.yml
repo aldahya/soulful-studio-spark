@@ -21,8 +21,8 @@ jobs:
 
       - name: Build project
         run: |
-          # حل مشكلة lovable-tagger
-          export VITE_LOVABLE_TAGGER_DISABLED=true
+          # حذف استدعاء lovable-tagger من ملف الإعدادات لتجنب الخطأ
+          sed -i "/lovable-tagger/d" vite.config.ts
           npm run build
         env:
           VITE_SUPABASE_URL: "https://vznzdkpcroccuklfjxac.supabase.co"
