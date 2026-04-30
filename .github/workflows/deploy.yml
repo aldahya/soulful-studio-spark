@@ -31,22 +31,16 @@ jobs:
 
       - name: Prepare Files for Deployment
         run: |
-          # التأكد من نسخ الملفات لمجلد dist
           cp public/manifest.json dist/manifest.json || echo "manifest.json missing"
           cp public/sw.js dist/sw.js || echo "sw.js missing"
           cp public/000.png dist/000.png || echo "000.png missing"
           
-          # إنشاء ملف .htaccess قوي جداً
           echo '<IfModule mod_rewrite.c>
             RewriteEngine On
             RewriteBase /
-            
-            # منع تحويل ملفات PWA والصور إلى index.html
             RewriteRule ^(manifest\.json|sw\.js|000\.png ) - [L]
-            
             RewriteCond %{REQUEST_FILENAME} -f
             RewriteRule ^ - [L]
-            
             RewriteRule ^index\.html$ - [L]
             RewriteCond %{REQUEST_FILENAME} !-f
             RewriteCond %{REQUEST_FILENAME} !-d
@@ -54,7 +48,6 @@ jobs:
           </IfModule>' > dist/.htaccess
           
           sed -i "s|/assets/|assets/|g" dist/index.html
-          ls -la dist/
 
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
@@ -66,4 +59,6 @@ jobs:
           server-dir: /public_html/aldaahia/
           protocol: ftp
           port: 21
-          dangerous-clean-slate: false
+          # إعدادات إضافية لحل مشكلة الـ Timeout
+          timeout: 90000
+          log-level: verbose
