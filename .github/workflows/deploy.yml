@@ -29,12 +29,12 @@ jobs:
           VITE_SUPABASE_URL: "https://vznzdkpcroccuklfjxac.supabase.co"
           VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6bnpka3Bjcm9jY3VrbGZqeGFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NTQ2MjQsImV4cCI6MjA5MzAzMDYyNH0.xvTxabYlNW6gq_BbQsCj2UZJLXboC85-P0B78z1dlOA"
 
-      - name: Manual Copy PWA Files and Fix Paths
+      - name: Prepare Files for Deployment
         run: |
-          # نسخ ملفات PWA يدوياً لضمان وجودها في المجلد النهائي
-          cp public/manifest.json dist/ || true
-          cp public/sw.js dist/ || true
-          cp public/000.png dist/ || true
+          # التأكد من وجود الملفات ونسخها للمجلد النهائي
+          cp public/manifest.json dist/ || echo "manifest.json not found"
+          cp public/sw.js dist/ || echo "sw.js not found"
+          cp public/000.png dist/ || echo "000.png not found"
           
           # إنشاء ملف .htaccess
           echo '<IfModule mod_rewrite.c>
@@ -48,6 +48,9 @@ jobs:
           
           # إصلاح مسارات الأصول في index.html
           sed -i "s|/assets/|assets/|g" dist/index.html
+          
+          # عرض قائمة الملفات للتأكد (ستظهر في سجلات GitHub )
+          ls -R dist/
 
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
@@ -59,3 +62,4 @@ jobs:
           server-dir: /public_html/aldaahia/
           protocol: ftp
           port: 21
+          dangerous-clean-slate: false
