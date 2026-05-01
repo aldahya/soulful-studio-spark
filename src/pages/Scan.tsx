@@ -30,7 +30,9 @@ export default function Scan() {
   const { user, isAdmin, teacherId, teacherStage } = useAuth();
   const [code, setCode] = useState('');
   const [status, setStatus] = useState<AttendanceStatus>('present');
+  const [autoMode, setAutoMode] = useState(true); // تلقائي: متأخر بعد 7:30
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [flash, setFlash] = useState<null | 'ok' | 'err'>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastScan = useRef<{ code: string; at: number }>({ code: '', at: 0 });
   const processing = useRef(false);
@@ -53,6 +55,8 @@ export default function Scan() {
     setLog((l) => [{ time: new Date().toLocaleTimeString('ar-SA'), ok, text, tag }, ...l].slice(0, 30));
   }
   function focusInput() { setTimeout(() => inputRef.current?.focus(), 50); }
+  function flashOk() { setFlash('ok'); setTimeout(() => setFlash(null), 700); }
+  function flashErr() { setFlash('err'); setTimeout(() => setFlash(null), 700); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
