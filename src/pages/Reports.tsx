@@ -436,6 +436,9 @@ export default function Reports() {
                 <TableHead>المرحلة</TableHead>
                 <TableHead>الفصل</TableHead>
                 <TableHead>الحالة</TableHead>
+                <TableHead className="text-center">حضور</TableHead>
+                <TableHead className="text-center">خروج</TableHead>
+                <TableHead className="text-center">عودة</TableHead>
                 <TableHead>تفاصيل</TableHead>
                 <TableHead className="text-left">واتساب</TableHead>
               </TableRow>
@@ -458,6 +461,9 @@ export default function Reports() {
                         {ENTRY_LABELS[r.status]}
                       </Badge>
                     </TableCell>
+                    <TableCell className="text-center text-xs font-mono">{nowTimeLabel(r.check_in_time)}</TableCell>
+                    <TableCell className="text-center text-xs font-mono">{nowTimeLabel(r.exit_time)}</TableCell>
+                    <TableCell className="text-center text-xs font-mono">{nowTimeLabel(r.return_time)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{r.reason ?? '—'}</TableCell>
                     <TableCell>
                       {wa
@@ -467,7 +473,7 @@ export default function Reports() {
                   </TableRow>
                 );
               })}
-              {!filtered.length && <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground">لا توجد بيانات</TableCell></TableRow>}
+              {!filtered.length && <TableRow><TableCell colSpan={10} className="py-12 text-center text-muted-foreground">لا توجد بيانات</TableCell></TableRow>}
             </TableBody>
           </Table>
         )}
