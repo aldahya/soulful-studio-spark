@@ -8,12 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, formatDate, todayISO, type AttendanceStatus, type Stage, whatsAppLink, toWhatsAppNumber } from '@/lib/i18n';
-import { Download, MessageCircle, Loader2, Send, LogOut, FileText, User as UserIcon } from 'lucide-react';
+import { Download, MessageCircle, Loader2, Send, LogOut, FileText, User as UserIcon, UserX } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useSchoolSettings } from '@/lib/school';
 import { useAuth } from '@/hooks/useAuth';
 import { openReportPdf, type ReportRow } from '@/lib/reportPdf';
+import { nowTimeLabel } from '@/lib/feedback';
 
 type EntryStatus = AttendanceStatus | 'permission';
 const ENTRY_LABELS: Record<EntryStatus, string> = { ...STATUS_LABELS, permission: 'استذان' };
