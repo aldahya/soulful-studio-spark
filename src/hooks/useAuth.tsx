@@ -24,20 +24,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [teacherStage, setTeacherStage] = useState<Stage | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       if (newSession?.user) {
-        setTimeout(() => fetchProfile(newSession.user.id), 0);
+        setProfileLoaded(false);
+        setTimeout(() => fetchProfile(newSession.user.id).finally(() => setProfileLoaded(true)), 0);
       } else {
         setRoles([]); setTeacherId(null); setTeacherStage(null);
+        setProfileLoaded(true);
       }
     });
 
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
-      if (s?.user) fetchProfile(s.user.id).finally(() => setLoading(false));
-      else setLoading(false);
+      if (s?.user) {
+        fetchProfile(s.user.id).finally(() => { setProfileLoaded(true); setLoading(false); });
+      } else {
+        setProfileLoaded(true); setLoading(false);
+      }
     });
 
     return () => sub.subscription.unsubscribe();
