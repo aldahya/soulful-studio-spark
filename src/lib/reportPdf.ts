@@ -38,6 +38,11 @@ export function openReportPdf(rows: ReportRow[], school: ReportSchool, meta: Rep
   const total = stats.present + stats.late + stats.absent;
   const rate = total ? Math.round((stats.present / total) * 100) : 0;
 
+  const fmtTime = (d?: string | null) => {
+    if (!d) return '—';
+    return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(d));
+  };
+
   const tableRows = rows.map((r) => `
     <tr>
       <td>${formatDate(r.date)}</td>
@@ -46,6 +51,9 @@ export function openReportPdf(rows: ReportRow[], school: ReportSchool, meta: Rep
       <td>${STAGE_LABELS[r.stage] ?? '—'}</td>
       <td>${r.class_name ?? '—'}</td>
       <td><span class="badge b-${r.status}">${ENTRY[r.status]}</span></td>
+      <td class="mono">${fmtTime(r.check_in_time)}</td>
+      <td class="mono">${fmtTime(r.exit_time)}</td>
+      <td class="mono">${fmtTime(r.return_time)}</td>
       <td>${r.reason ?? '—'}</td>
     </tr>`).join('');
 
