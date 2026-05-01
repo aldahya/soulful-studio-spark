@@ -77,10 +77,10 @@ export default function Reports() {
     setLoading(true);
     const [att, perms] = await Promise.all([
       supabase.from('attendance_records')
-        .select('id, status, date, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
+        .select('id, status, date, check_in_time, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
         .gte('date', from).lte('date', to).order('date', { ascending: false }),
       supabase.from('permissions')
-        .select('id, status, date, reason, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
+        .select('id, status, date, reason, used_at, returned_at, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
         .gte('date', from).lte('date', to).order('date', { ascending: false }),
     ]);
 
@@ -90,6 +90,7 @@ export default function Reports() {
       student_number: r.students?.student_number ?? '', parent_phone: r.students?.parent_phone ?? null,
       stage: r.students?.stage, class_id: r.students?.class_id ?? null,
       class_name: r.students?.classes?.name ?? null,
+      check_in_time: r.check_in_time ?? null,
     }));
     const p: Entry[] = ((perms.data ?? []) as any[]).map((r) => ({
       id: 'p:' + r.id, date: r.date, status: 'permission',
@@ -98,6 +99,8 @@ export default function Reports() {
       stage: r.students?.stage, class_id: r.students?.class_id ?? null,
       class_name: r.students?.classes?.name ?? null,
       reason: r.reason,
+      exit_time: r.used_at ?? null,
+      return_time: r.returned_at ?? null,
     }));
     setEntries([...a, ...p].sort((x, y) => y.date.localeCompare(x.date)));
     setLoading(false);
