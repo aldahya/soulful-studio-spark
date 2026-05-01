@@ -85,6 +85,7 @@ export default function Scan() {
       if (error || !student) {
         pushLog(false, `باركود غير معروف: ${trimmed}`);
         toast.error('باركود غير معروف');
+        beepError(); flashErr();
         return;
       }
 
@@ -92,35 +93,53 @@ export default function Scan() {
       if (!isAdmin && teacherStage && student.stage !== teacherStage) {
         pushLog(false, `${student.full_name}: من مرحلة ${STAGE_LABELS[student.stage as keyof typeof STAGE_LABELS]} — خارج صلاحياتك`, 'مرفوض');
         toast.error(`لا يمكنك مسح طالب من مرحلة أخرى (${STAGE_LABELS[student.stage as keyof typeof STAGE_LABELS]})`);
+        beepError(); flashErr();
         return;
       }
 
       const today = todayISO();
       const { data: existing } = await supabase
-        .from('attendance_records').select('id, status')
+        .from('attendance_records').select('id, status, check_in_time')
         .eq('student_id', student.id).eq('date', today).maybeSingle();
 
       if (existing) {
-        // فحص استذان معلَّق — إن وُجد نستهلكه مباشرة
+        // فحص استذان معلَّق — إن وُجد نستهلكه مباشرة (= تسجيل الخروج)
         const { data: perm } = await supabase
-          .from('permissions').select('id, status')
-          .eq('student_id', student.id).eq('date', today).eq('status', 'pending').maybeSingle();
+          .from('permissions').select('id, status, used_at')
+          .eq('student_id', student.id).eq('date', today)
+          .in('status', ['pending', 'used']).order('issued_at', { ascending: false }).limit(1).maybeSingle();
 
-        if (perm) {
+        if (perm && perm.status === 'pending') {
           const nowIso = new Date().toISOString();
           const { error: updErr } = await supabase
             .from('permissions').update({ status: 'used', used_at: nowIso }).eq('id', perm.id);
           if (updErr) {
             pushLog(false, `تعذّر استهلاك الاستذان: ${updErr.message}`);
-            toast.error(updErr.message);
+            toast.error(updErr.message); beepError(); flashErr();
           } else {
             await supabase.from('permission_logs').insert({
               permission_id: perm.id, action: 'used', actor_id: user!.id,
             });
             pushLog(true, `${student.full_name} (${student.student_number}) — تم تسجيل الخروج`, 'استذان');
             toast.success(`تم استهلاك الاستذان: ${student.full_name}`);
+            beepSuccess(); flashOk();
           }
           return;
+        }
+
+        // لو الاستذان تم استخدامه (الطالب خرج) ثم رجع → نسجّل وقت العودة
+        if (perm && perm.status === 'used' && !((perm as any).returned_at)) {
+          const { error: retErr } = await supabase.from('permissions')
+            .update({ returned_at: new Date().toISOString() }).eq('id', perm.id);
+          if (!retErr) {
+            await supabase.from('permission_logs').insert({
+              permission_id: perm.id, action: 'returned', actor_id: user!.id,
+            });
+            pushLog(true, `${student.full_name} — تم تسجيل العودة`, 'عودة');
+            toast.success(`عودة الطالب: ${student.full_name}`);
+            beepSuccess(); flashOk();
+            return;
+          }
         }
 
         // لا يوجد استذان — نسأل المستخدم: تجاهل أم إصدار استذان
@@ -134,16 +153,20 @@ export default function Scan() {
         return;
       }
 
+      // تسجيل حضور جديد — تحديد الحالة تلقائياً (بعد 7:30 = متأخر)
+      const finalStatus: AttendanceStatus = autoMode ? autoStatusByTime() : status;
+      const nowIso = new Date().toISOString();
       const { error: insErr } = await supabase
         .from('attendance_records')
-        .insert({ student_id: student.id, teacher_id: teacherId, status, date: today });
+        .insert({ student_id: student.id, teacher_id: teacherId, status: finalStatus, date: today, check_in_time: nowIso });
 
       if (insErr) {
         pushLog(false, `فشل تسجيل ${student.full_name}: ${insErr.message}`);
-        toast.error(insErr.message);
+        toast.error(insErr.message); beepError(); flashErr();
       } else {
-        pushLog(true, `${student.full_name} (${student.student_number})`, STATUS_LABELS[status]);
-        toast.success(`${STATUS_LABELS[status]}: ${student.full_name}`);
+        pushLog(true, `${student.full_name} (${student.student_number})`, STATUS_LABELS[finalStatus]);
+        toast.success(`${STATUS_LABELS[finalStatus]}: ${student.full_name}`);
+        beepSuccess(); flashOk();
       }
     } finally {
       processing.current = false;
