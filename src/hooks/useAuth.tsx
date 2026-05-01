@@ -12,6 +12,7 @@ interface AuthContextValue {
   teacherId: string | null;
   teacherStage: Stage | null;
   loading: boolean;
+  profileLoaded: boolean;
   signOut: () => Promise<void>;
 }
 
