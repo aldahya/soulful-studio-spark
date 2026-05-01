@@ -388,6 +388,9 @@ export default function Reports() {
           <Button onClick={exportPdf} variant="outline" disabled={!filtered.length} className="gap-2">
             <FileText className="h-4 w-4" /> تصدير PDF
           </Button>
+          <Button onClick={markMissingAsAbsent} variant="outline" className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/10">
+            <UserX className="h-4 w-4" /> تسجيل الغائبين تلقائياً (اليوم)
+          </Button>
         </div>
       </Card>
 
