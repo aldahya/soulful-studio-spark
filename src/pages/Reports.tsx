@@ -217,9 +217,9 @@ export default function Reports() {
     const end = endDate.toISOString().slice(0, 10);
 
     const [att, perms] = await Promise.all([
-      supabase.from('attendance_records').select('id, status, date, students(full_name, student_number, stage, class_id, classes(name))')
+      supabase.from('attendance_records').select('id, status, date, check_in_time, students(full_name, student_number, stage, class_id, classes(name))')
         .eq('student_id', monthlyStudent).gte('date', start).lt('date', end).order('date'),
-      supabase.from('permissions').select('id, date, reason, students(full_name, student_number, stage, class_id, classes(name))')
+      supabase.from('permissions').select('id, date, reason, used_at, returned_at, students(full_name, student_number, stage, class_id, classes(name))')
         .eq('student_id', monthlyStudent).gte('date', start).lt('date', end).order('date'),
     ]);
     const rows: ReportRow[] = [
@@ -227,11 +227,13 @@ export default function Reports() {
         date: r.date, student_name: r.students?.full_name ?? stu.full_name,
         student_number: r.students?.student_number ?? '', stage: r.students?.stage ?? stu.stage,
         class_name: r.students?.classes?.name ?? null, status: r.status as AttendanceStatus, reason: null,
+        check_in_time: r.check_in_time ?? null,
       })),
       ...((perms.data ?? []) as any[]).map((r) => ({
         date: r.date, student_name: r.students?.full_name ?? stu.full_name,
         student_number: r.students?.student_number ?? '', stage: r.students?.stage ?? stu.stage,
         class_name: r.students?.classes?.name ?? null, status: 'permission' as const, reason: r.reason,
+        exit_time: r.used_at ?? null, return_time: r.returned_at ?? null,
       })),
     ].sort((x, y) => x.date.localeCompare(y.date));
 
