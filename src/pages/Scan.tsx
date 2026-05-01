@@ -229,17 +229,36 @@ export default function Scan() {
       </header>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2 p-6 shadow-soft">
-          <div className="mb-6 flex flex-wrap gap-2">
-            {statusButtons.map((b) => (
-              <Button
-                key={b.value}
-                onClick={() => setStatus(b.value)}
-                className={`gap-2 ${status === b.value ? b.cls + ' shadow-glow' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
-              >
-                <b.icon className="h-4 w-4" /> {STATUS_LABELS[b.value]}
-              </Button>
-            ))}
+        <Card className="lg:col-span-2 p-6 shadow-soft relative overflow-hidden">
+          {flash === 'ok' && (
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-success/15 animate-in fade-in zoom-in duration-200">
+              <CheckCircle2 className="h-32 w-32 text-success drop-shadow-[0_0_20px_hsl(var(--success))]" strokeWidth={3} />
+            </div>
+          )}
+          {flash === 'err' && (
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-destructive/15 animate-in fade-in zoom-in duration-200">
+              <XCircle className="h-32 w-32 text-destructive" strokeWidth={3} />
+            </div>
+          )}
+
+          <div className="mb-4 flex flex-wrap items-center gap-2 justify-between">
+            <div className="flex flex-wrap gap-2">
+              {statusButtons.map((b) => (
+                <Button
+                  key={b.value}
+                  disabled={autoMode}
+                  onClick={() => setStatus(b.value)}
+                  className={`gap-2 ${status === b.value ? b.cls + ' shadow-glow' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'} ${autoMode ? 'opacity-50' : ''}`}
+                >
+                  <b.icon className="h-4 w-4" /> {STATUS_LABELS[b.value]}
+                </Button>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 text-xs cursor-pointer rounded-lg border bg-muted/30 px-3 py-2">
+              <input type="checkbox" checked={autoMode} onChange={(e) => setAutoMode(e.target.checked)} />
+              <span className="font-semibold">وضع تلقائي</span>
+              <span className="text-muted-foreground">(متأخر بعد 7:30)</span>
+            </label>
           </div>
 
           <Tabs defaultValue="keyboard">
@@ -269,7 +288,7 @@ export default function Scan() {
           </Tabs>
           <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
             <ArrowLeftRight className="h-3.5 w-3.5" />
-            مسح أول = حضور · مسح ثانٍ = استهلاك استذان الخروج
+            مسح أول = حضور · مسح ثانٍ على طالب لديه استذان = خروج · مسح ثالث = عودة
           </p>
         </Card>
 
