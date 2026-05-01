@@ -190,6 +190,7 @@ export default function Reports() {
     const rows: ReportRow[] = filtered.map((e) => ({
       date: e.date, student_name: e.student_name, student_number: e.student_number,
       stage: e.stage, class_name: e.class_name, status: e.status, reason: e.reason ?? null,
+      check_in_time: e.check_in_time ?? null, exit_time: e.exit_time ?? null, return_time: e.return_time ?? null,
     }));
     const filtersText = [
       stageFilter !== 'all' ? `المرحلة: ${STAGE_LABELS[stageFilter as Stage]}` : '',
