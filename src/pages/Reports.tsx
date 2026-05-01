@@ -8,12 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, formatDate, todayISO, type AttendanceStatus, type Stage, whatsAppLink, toWhatsAppNumber } from '@/lib/i18n';
-import { Download, MessageCircle, Loader2, Send, LogOut, FileText, User as UserIcon } from 'lucide-react';
+import { Download, MessageCircle, Loader2, Send, LogOut, FileText, User as UserIcon, UserX } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useSchoolSettings } from '@/lib/school';
 import { useAuth } from '@/hooks/useAuth';
 import { openReportPdf, type ReportRow } from '@/lib/reportPdf';
+import { nowTimeLabel } from '@/lib/feedback';
 
 type EntryStatus = AttendanceStatus | 'permission';
 const ENTRY_LABELS: Record<EntryStatus, string> = { ...STATUS_LABELS, permission: 'استذان' };
@@ -30,6 +31,9 @@ interface Entry {
   class_id: string | null;
   class_name: string | null;
   reason?: string | null;
+  check_in_time?: string | null;
+  exit_time?: string | null;
+  return_time?: string | null;
 }
 
 interface ClassRow { id: string; name: string; stage: Stage }
@@ -73,10 +77,10 @@ export default function Reports() {
     setLoading(true);
     const [att, perms] = await Promise.all([
       supabase.from('attendance_records')
-        .select('id, status, date, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
+        .select('id, status, date, check_in_time, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
         .gte('date', from).lte('date', to).order('date', { ascending: false }),
       supabase.from('permissions')
-        .select('id, status, date, reason, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
+        .select('id, status, date, reason, used_at, returned_at, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
         .gte('date', from).lte('date', to).order('date', { ascending: false }),
     ]);
 
@@ -86,6 +90,7 @@ export default function Reports() {
       student_number: r.students?.student_number ?? '', parent_phone: r.students?.parent_phone ?? null,
       stage: r.students?.stage, class_id: r.students?.class_id ?? null,
       class_name: r.students?.classes?.name ?? null,
+      check_in_time: r.check_in_time ?? null,
     }));
     const p: Entry[] = ((perms.data ?? []) as any[]).map((r) => ({
       id: 'p:' + r.id, date: r.date, status: 'permission',
@@ -94,6 +99,8 @@ export default function Reports() {
       stage: r.students?.stage, class_id: r.students?.class_id ?? null,
       class_name: r.students?.classes?.name ?? null,
       reason: r.reason,
+      exit_time: r.used_at ?? null,
+      return_time: r.returned_at ?? null,
     }));
     setEntries([...a, ...p].sort((x, y) => y.date.localeCompare(x.date)));
     setLoading(false);
@@ -111,27 +118,37 @@ export default function Reports() {
   function exportExcel() {
     const data = filtered.map((r) => ({
       'التاريخ': r.date,
-      'الطالب': r.student_name,
+      'اسم الطالب': r.student_name,
       'رقم الطالب': r.student_number,
       'المرحلة': STAGE_LABELS[r.stage] ?? '',
       'الفصل': r.class_name ?? '',
       'الحالة': ENTRY_LABELS[r.status],
+      'وقت الحضور': nowTimeLabel(r.check_in_time),
+      'وقت الخروج': nowTimeLabel(r.exit_time),
+      'وقت العودة': nowTimeLabel(r.return_time),
       'سبب الاستذان': r.reason ?? '',
       'هاتف ولي الأمر': r.parent_phone ?? '',
     }));
-    // Header row meta as second sheet
     const ws = XLSX.utils.json_to_sheet(data);
     (ws as any)['!views'] = [{ RTL: true }];
+    // أعرض أعمدة معقولة
+    (ws as any)['!cols'] = [
+      { wch: 12 }, { wch: 28 }, { wch: 12 }, { wch: 10 }, { wch: 14 },
+      { wch: 10 }, { wch: 11 }, { wch: 11 }, { wch: 11 }, { wch: 22 }, { wch: 16 },
+    ];
 
     const meta = [
       [settings?.school_name ?? 'مدارس الضاحية'],
       [settings?.subtitle ?? ''],
+      [settings?.address ?? ''],
+      [settings?.phone ?? ''],
       [`الفترة: من ${from} إلى ${to}`],
       [`عدد السجلات: ${data.length}`],
       [`تاريخ الإصدار: ${new Date().toLocaleString('ar-SA')}`],
     ];
     const wsMeta = XLSX.utils.aoa_to_sheet(meta);
     (wsMeta as any)['!views'] = [{ RTL: true }];
+    (wsMeta as any)['!cols'] = [{ wch: 50 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, wsMeta, 'بيانات المدرسة');
     XLSX.utils.book_append_sheet(wb, ws, 'تقرير');
@@ -139,11 +156,41 @@ export default function Reports() {
     toast.success('تم تصدير الملف');
   }
 
+  async function markMissingAsAbsent() {
+    const target = todayISO();
+    if (target < from || target > to) {
+      toast.error('اضبط نطاق التاريخ ليشمل اليوم لاستخدام الغياب التلقائي');
+      return;
+    }
+    if (!confirm(`سيتم تسجيل جميع الطلاب${(!isAdmin && teacherStage) ? ` لمرحلة ${STAGE_LABELS[teacherStage]}` : ''} الذين لم يُمسح باركودهم اليوم كـ "غائب". متابعة؟`)) return;
+
+    let q = supabase.from('students').select('id, stage');
+    if (!isAdmin && teacherStage) q = q.eq('stage', teacherStage);
+    const { data: studs } = await q;
+    if (!studs?.length) { toast.error('لا يوجد طلاب'); return; }
+
+    const { data: marked } = await supabase.from('attendance_records')
+      .select('student_id').eq('date', target);
+    const markedIds = new Set((marked ?? []).map((m: any) => m.student_id));
+    const missing = studs.filter((s: any) => !markedIds.has(s.id));
+    if (!missing.length) { toast.success('لا يوجد غائبين — جميع الطلاب مسجَّلين'); return; }
+
+    const rows = missing.map((s: any) => ({
+      student_id: s.id, status: 'absent' as const, date: target,
+      teacher_id: null,
+    }));
+    const { error } = await supabase.from('attendance_records').insert(rows);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`تم تسجيل ${missing.length} طالب كـ "غائب"`);
+    load();
+  }
+
   function exportPdf() {
     if (!filtered.length) { toast.error('لا توجد بيانات'); return; }
     const rows: ReportRow[] = filtered.map((e) => ({
       date: e.date, student_name: e.student_name, student_number: e.student_number,
       stage: e.stage, class_name: e.class_name, status: e.status, reason: e.reason ?? null,
+      check_in_time: e.check_in_time ?? null, exit_time: e.exit_time ?? null, return_time: e.return_time ?? null,
     }));
     const filtersText = [
       stageFilter !== 'all' ? `المرحلة: ${STAGE_LABELS[stageFilter as Stage]}` : '',
@@ -170,9 +217,9 @@ export default function Reports() {
     const end = endDate.toISOString().slice(0, 10);
 
     const [att, perms] = await Promise.all([
-      supabase.from('attendance_records').select('id, status, date, students(full_name, student_number, stage, class_id, classes(name))')
+      supabase.from('attendance_records').select('id, status, date, check_in_time, students(full_name, student_number, stage, class_id, classes(name))')
         .eq('student_id', monthlyStudent).gte('date', start).lt('date', end).order('date'),
-      supabase.from('permissions').select('id, date, reason, students(full_name, student_number, stage, class_id, classes(name))')
+      supabase.from('permissions').select('id, date, reason, used_at, returned_at, students(full_name, student_number, stage, class_id, classes(name))')
         .eq('student_id', monthlyStudent).gte('date', start).lt('date', end).order('date'),
     ]);
     const rows: ReportRow[] = [
@@ -180,11 +227,13 @@ export default function Reports() {
         date: r.date, student_name: r.students?.full_name ?? stu.full_name,
         student_number: r.students?.student_number ?? '', stage: r.students?.stage ?? stu.stage,
         class_name: r.students?.classes?.name ?? null, status: r.status as AttendanceStatus, reason: null,
+        check_in_time: r.check_in_time ?? null,
       })),
       ...((perms.data ?? []) as any[]).map((r) => ({
         date: r.date, student_name: r.students?.full_name ?? stu.full_name,
         student_number: r.students?.student_number ?? '', stage: r.students?.stage ?? stu.stage,
         class_name: r.students?.classes?.name ?? null, status: 'permission' as const, reason: r.reason,
+        exit_time: r.used_at ?? null, return_time: r.returned_at ?? null,
       })),
     ].sort((x, y) => x.date.localeCompare(y.date));
 
@@ -342,6 +391,9 @@ export default function Reports() {
           <Button onClick={exportPdf} variant="outline" disabled={!filtered.length} className="gap-2">
             <FileText className="h-4 w-4" /> تصدير PDF
           </Button>
+          <Button onClick={markMissingAsAbsent} variant="outline" className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/10">
+            <UserX className="h-4 w-4" /> تسجيل الغائبين تلقائياً (اليوم)
+          </Button>
         </div>
       </Card>
 
@@ -387,6 +439,9 @@ export default function Reports() {
                 <TableHead>المرحلة</TableHead>
                 <TableHead>الفصل</TableHead>
                 <TableHead>الحالة</TableHead>
+                <TableHead className="text-center">حضور</TableHead>
+                <TableHead className="text-center">خروج</TableHead>
+                <TableHead className="text-center">عودة</TableHead>
                 <TableHead>تفاصيل</TableHead>
                 <TableHead className="text-left">واتساب</TableHead>
               </TableRow>
@@ -409,6 +464,9 @@ export default function Reports() {
                         {ENTRY_LABELS[r.status]}
                       </Badge>
                     </TableCell>
+                    <TableCell className="text-center text-xs font-mono">{nowTimeLabel(r.check_in_time)}</TableCell>
+                    <TableCell className="text-center text-xs font-mono">{nowTimeLabel(r.exit_time)}</TableCell>
+                    <TableCell className="text-center text-xs font-mono">{nowTimeLabel(r.return_time)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{r.reason ?? '—'}</TableCell>
                     <TableCell>
                       {wa
@@ -418,7 +476,7 @@ export default function Reports() {
                   </TableRow>
                 );
               })}
-              {!filtered.length && <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground">لا توجد بيانات</TableCell></TableRow>}
+              {!filtered.length && <TableRow><TableCell colSpan={10} className="py-12 text-center text-muted-foreground">لا توجد بيانات</TableCell></TableRow>}
             </TableBody>
           </Table>
         )}

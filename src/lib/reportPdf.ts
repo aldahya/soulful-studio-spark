@@ -11,6 +11,9 @@ export interface ReportRow {
   class_name: string | null;
   status: AttendanceStatus | 'permission';
   reason?: string | null;
+  check_in_time?: string | null;
+  exit_time?: string | null;
+  return_time?: string | null;
 }
 
 export interface ReportSchool {
@@ -35,6 +38,11 @@ export function openReportPdf(rows: ReportRow[], school: ReportSchool, meta: Rep
   const total = stats.present + stats.late + stats.absent;
   const rate = total ? Math.round((stats.present / total) * 100) : 0;
 
+  const fmtTime = (d?: string | null) => {
+    if (!d) return '—';
+    return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(d));
+  };
+
   const tableRows = rows.map((r) => `
     <tr>
       <td>${formatDate(r.date)}</td>
@@ -43,6 +51,9 @@ export function openReportPdf(rows: ReportRow[], school: ReportSchool, meta: Rep
       <td>${STAGE_LABELS[r.stage] ?? '—'}</td>
       <td>${r.class_name ?? '—'}</td>
       <td><span class="badge b-${r.status}">${ENTRY[r.status]}</span></td>
+      <td class="mono">${fmtTime(r.check_in_time)}</td>
+      <td class="mono">${fmtTime(r.exit_time)}</td>
+      <td class="mono">${fmtTime(r.return_time)}</td>
       <td>${r.reason ?? '—'}</td>
     </tr>`).join('');
 
@@ -105,9 +116,9 @@ export function openReportPdf(rows: ReportRow[], school: ReportSchool, meta: Rep
   ${total ? `<p style="font-size:12px;color:#0f766e;font-weight:700">نسبة الحضور: ${rate}%</p>` : ''}
   <table>
     <thead><tr>
-      <th>التاريخ</th><th>الطالب</th><th>الرقم</th><th>المرحلة</th><th>الفصل</th><th>الحالة</th><th>تفاصيل</th>
+      <th>التاريخ</th><th>الطالب</th><th>الرقم</th><th>المرحلة</th><th>الفصل</th><th>الحالة</th><th>وقت الحضور</th><th>وقت الخروج</th><th>وقت العودة</th><th>تفاصيل</th>
     </tr></thead>
-    <tbody>${tableRows || `<tr><td colspan="7" style="text-align:center;padding:24px;color:#64748b">لا توجد بيانات</td></tr>`}</tbody>
+    <tbody>${tableRows || `<tr><td colspan="10" style="text-align:center;padding:24px;color:#64748b">لا توجد بيانات</td></tr>`}</tbody>
   </table>
   <div class="footer">
     <span>${school.school_name}</span>

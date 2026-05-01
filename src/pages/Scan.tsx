@@ -17,19 +17,22 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import CameraScanner from '@/components/CameraScanner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { beepSuccess, beepError, autoStatusByTime } from '@/lib/feedback';
 
 interface LogEntry { time: string; ok: boolean; text: string; tag?: string }
 interface DupContext {
   studentId: string; studentName: string; studentNumber: string; existingStatus: AttendanceStatus;
 }
 
-const RESCAN_COOLDOWN_MS = 2500; // منع المسح المتكرر بالخطأ
+const RESCAN_COOLDOWN_MS = 1500; // أسرع — منع المسح المتكرر بالخطأ
 
 export default function Scan() {
   const { user, isAdmin, teacherId, teacherStage } = useAuth();
   const [code, setCode] = useState('');
   const [status, setStatus] = useState<AttendanceStatus>('present');
+  const [autoMode, setAutoMode] = useState(true); // تلقائي: متأخر بعد 7:30
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [flash, setFlash] = useState<null | 'ok' | 'err'>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastScan = useRef<{ code: string; at: number }>({ code: '', at: 0 });
   const processing = useRef(false);
@@ -52,6 +55,8 @@ export default function Scan() {
     setLog((l) => [{ time: new Date().toLocaleTimeString('ar-SA'), ok, text, tag }, ...l].slice(0, 30));
   }
   function focusInput() { setTimeout(() => inputRef.current?.focus(), 50); }
+  function flashOk() { setFlash('ok'); setTimeout(() => setFlash(null), 700); }
+  function flashErr() { setFlash('err'); setTimeout(() => setFlash(null), 700); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -80,6 +85,7 @@ export default function Scan() {
       if (error || !student) {
         pushLog(false, `باركود غير معروف: ${trimmed}`);
         toast.error('باركود غير معروف');
+        beepError(); flashErr();
         return;
       }
 
@@ -87,35 +93,53 @@ export default function Scan() {
       if (!isAdmin && teacherStage && student.stage !== teacherStage) {
         pushLog(false, `${student.full_name}: من مرحلة ${STAGE_LABELS[student.stage as keyof typeof STAGE_LABELS]} — خارج صلاحياتك`, 'مرفوض');
         toast.error(`لا يمكنك مسح طالب من مرحلة أخرى (${STAGE_LABELS[student.stage as keyof typeof STAGE_LABELS]})`);
+        beepError(); flashErr();
         return;
       }
 
       const today = todayISO();
       const { data: existing } = await supabase
-        .from('attendance_records').select('id, status')
+        .from('attendance_records').select('id, status, check_in_time')
         .eq('student_id', student.id).eq('date', today).maybeSingle();
 
       if (existing) {
-        // فحص استذان معلَّق — إن وُجد نستهلكه مباشرة
+        // فحص استذان معلَّق — إن وُجد نستهلكه مباشرة (= تسجيل الخروج)
         const { data: perm } = await supabase
-          .from('permissions').select('id, status')
-          .eq('student_id', student.id).eq('date', today).eq('status', 'pending').maybeSingle();
+          .from('permissions').select('id, status, used_at')
+          .eq('student_id', student.id).eq('date', today)
+          .in('status', ['pending', 'used']).order('issued_at', { ascending: false }).limit(1).maybeSingle();
 
-        if (perm) {
+        if (perm && perm.status === 'pending') {
           const nowIso = new Date().toISOString();
           const { error: updErr } = await supabase
             .from('permissions').update({ status: 'used', used_at: nowIso }).eq('id', perm.id);
           if (updErr) {
             pushLog(false, `تعذّر استهلاك الاستذان: ${updErr.message}`);
-            toast.error(updErr.message);
+            toast.error(updErr.message); beepError(); flashErr();
           } else {
             await supabase.from('permission_logs').insert({
               permission_id: perm.id, action: 'used', actor_id: user!.id,
             });
             pushLog(true, `${student.full_name} (${student.student_number}) — تم تسجيل الخروج`, 'استذان');
             toast.success(`تم استهلاك الاستذان: ${student.full_name}`);
+            beepSuccess(); flashOk();
           }
           return;
+        }
+
+        // لو الاستذان تم استخدامه (الطالب خرج) ثم رجع → نسجّل وقت العودة
+        if (perm && perm.status === 'used' && !((perm as any).returned_at)) {
+          const { error: retErr } = await supabase.from('permissions')
+            .update({ returned_at: new Date().toISOString() }).eq('id', perm.id);
+          if (!retErr) {
+            await supabase.from('permission_logs').insert({
+              permission_id: perm.id, action: 'returned', actor_id: user!.id,
+            });
+            pushLog(true, `${student.full_name} — تم تسجيل العودة`, 'عودة');
+            toast.success(`عودة الطالب: ${student.full_name}`);
+            beepSuccess(); flashOk();
+            return;
+          }
         }
 
         // لا يوجد استذان — نسأل المستخدم: تجاهل أم إصدار استذان
@@ -129,16 +153,20 @@ export default function Scan() {
         return;
       }
 
+      // تسجيل حضور جديد — تحديد الحالة تلقائياً (بعد 7:30 = متأخر)
+      const finalStatus: AttendanceStatus = autoMode ? autoStatusByTime() : status;
+      const nowIso = new Date().toISOString();
       const { error: insErr } = await supabase
         .from('attendance_records')
-        .insert({ student_id: student.id, teacher_id: teacherId, status, date: today });
+        .insert({ student_id: student.id, teacher_id: teacherId, status: finalStatus, date: today, check_in_time: nowIso });
 
       if (insErr) {
         pushLog(false, `فشل تسجيل ${student.full_name}: ${insErr.message}`);
-        toast.error(insErr.message);
+        toast.error(insErr.message); beepError(); flashErr();
       } else {
-        pushLog(true, `${student.full_name} (${student.student_number})`, STATUS_LABELS[status]);
-        toast.success(`${STATUS_LABELS[status]}: ${student.full_name}`);
+        pushLog(true, `${student.full_name} (${student.student_number})`, STATUS_LABELS[finalStatus]);
+        toast.success(`${STATUS_LABELS[finalStatus]}: ${student.full_name}`);
+        beepSuccess(); flashOk();
       }
     } finally {
       processing.current = false;
@@ -201,17 +229,36 @@ export default function Scan() {
       </header>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2 p-6 shadow-soft">
-          <div className="mb-6 flex flex-wrap gap-2">
-            {statusButtons.map((b) => (
-              <Button
-                key={b.value}
-                onClick={() => setStatus(b.value)}
-                className={`gap-2 ${status === b.value ? b.cls + ' shadow-glow' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
-              >
-                <b.icon className="h-4 w-4" /> {STATUS_LABELS[b.value]}
-              </Button>
-            ))}
+        <Card className="lg:col-span-2 p-6 shadow-soft relative overflow-hidden">
+          {flash === 'ok' && (
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-success/15 animate-in fade-in zoom-in duration-200">
+              <CheckCircle2 className="h-32 w-32 text-success drop-shadow-[0_0_20px_hsl(var(--success))]" strokeWidth={3} />
+            </div>
+          )}
+          {flash === 'err' && (
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-destructive/15 animate-in fade-in zoom-in duration-200">
+              <XCircle className="h-32 w-32 text-destructive" strokeWidth={3} />
+            </div>
+          )}
+
+          <div className="mb-4 flex flex-wrap items-center gap-2 justify-between">
+            <div className="flex flex-wrap gap-2">
+              {statusButtons.map((b) => (
+                <Button
+                  key={b.value}
+                  disabled={autoMode}
+                  onClick={() => setStatus(b.value)}
+                  className={`gap-2 ${status === b.value ? b.cls + ' shadow-glow' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'} ${autoMode ? 'opacity-50' : ''}`}
+                >
+                  <b.icon className="h-4 w-4" /> {STATUS_LABELS[b.value]}
+                </Button>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 text-xs cursor-pointer rounded-lg border bg-muted/30 px-3 py-2">
+              <input type="checkbox" checked={autoMode} onChange={(e) => setAutoMode(e.target.checked)} />
+              <span className="font-semibold">وضع تلقائي</span>
+              <span className="text-muted-foreground">(متأخر بعد 7:30)</span>
+            </label>
           </div>
 
           <Tabs defaultValue="keyboard">
@@ -241,7 +288,7 @@ export default function Scan() {
           </Tabs>
           <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
             <ArrowLeftRight className="h-3.5 w-3.5" />
-            مسح أول = حضور · مسح ثانٍ = استهلاك استذان الخروج
+            مسح أول = حضور · مسح ثانٍ على طالب لديه استذان = خروج · مسح ثالث = عودة
           </p>
         </Card>
 

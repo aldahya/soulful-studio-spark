@@ -4,10 +4,10 @@ import { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export function ProtectedRoute({ children, requireAdmin = false }: { children: ReactNode; requireAdmin?: boolean }) {
-  const { session, loading, isAdmin, isTeacher } = useAuth();
+  const { session, loading, isAdmin, isTeacher, profileLoaded } = useAuth();
   const location = useLocation();
 
-  if (loading) {
+  if (loading || (session && !profileLoaded)) {
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-soft">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

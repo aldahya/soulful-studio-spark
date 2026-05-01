@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       attendance_records: {
         Row: {
+          check_in_time: string | null
           date: string
           id: string
           recorded_at: string
@@ -25,6 +26,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          check_in_time?: string | null
           date: string
           id?: string
           recorded_at?: string
@@ -34,6 +36,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          check_in_time?: string | null
           date?: string
           id?: string
           recorded_at?: string
