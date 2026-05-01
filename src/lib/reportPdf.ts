@@ -11,6 +11,9 @@ export interface ReportRow {
   class_name: string | null;
   status: AttendanceStatus | 'permission';
   reason?: string | null;
+  check_in_time?: string | null;
+  exit_time?: string | null;
+  return_time?: string | null;
 }
 
 export interface ReportSchool {
