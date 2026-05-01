@@ -30,6 +30,9 @@ interface Entry {
   class_id: string | null;
   class_name: string | null;
   reason?: string | null;
+  check_in_time?: string | null;
+  exit_time?: string | null;
+  return_time?: string | null;
 }
 
 interface ClassRow { id: string; name: string; stage: Stage }
