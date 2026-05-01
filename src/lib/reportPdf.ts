@@ -116,9 +116,9 @@ export function openReportPdf(rows: ReportRow[], school: ReportSchool, meta: Rep
   ${total ? `<p style="font-size:12px;color:#0f766e;font-weight:700">نسبة الحضور: ${rate}%</p>` : ''}
   <table>
     <thead><tr>
-      <th>التاريخ</th><th>الطالب</th><th>الرقم</th><th>المرحلة</th><th>الفصل</th><th>الحالة</th><th>تفاصيل</th>
+      <th>التاريخ</th><th>الطالب</th><th>الرقم</th><th>المرحلة</th><th>الفصل</th><th>الحالة</th><th>وقت الحضور</th><th>وقت الخروج</th><th>وقت العودة</th><th>تفاصيل</th>
     </tr></thead>
-    <tbody>${tableRows || `<tr><td colspan="7" style="text-align:center;padding:24px;color:#64748b">لا توجد بيانات</td></tr>`}</tbody>
+    <tbody>${tableRows || `<tr><td colspan="10" style="text-align:center;padding:24px;color:#64748b">لا توجد بيانات</td></tr>`}</tbody>
   </table>
   <div class="footer">
     <span>${school.school_name}</span>
