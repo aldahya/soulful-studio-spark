@@ -118,32 +118,71 @@ export default function Reports() {
   function exportExcel() {
     const data = filtered.map((r) => ({
       'التاريخ': r.date,
-      'الطالب': r.student_name,
+      'اسم الطالب': r.student_name,
       'رقم الطالب': r.student_number,
       'المرحلة': STAGE_LABELS[r.stage] ?? '',
       'الفصل': r.class_name ?? '',
       'الحالة': ENTRY_LABELS[r.status],
+      'وقت الحضور': nowTimeLabel(r.check_in_time),
+      'وقت الخروج': nowTimeLabel(r.exit_time),
+      'وقت العودة': nowTimeLabel(r.return_time),
       'سبب الاستذان': r.reason ?? '',
       'هاتف ولي الأمر': r.parent_phone ?? '',
     }));
-    // Header row meta as second sheet
     const ws = XLSX.utils.json_to_sheet(data);
     (ws as any)['!views'] = [{ RTL: true }];
+    // أعرض أعمدة معقولة
+    (ws as any)['!cols'] = [
+      { wch: 12 }, { wch: 28 }, { wch: 12 }, { wch: 10 }, { wch: 14 },
+      { wch: 10 }, { wch: 11 }, { wch: 11 }, { wch: 11 }, { wch: 22 }, { wch: 16 },
+    ];
 
     const meta = [
       [settings?.school_name ?? 'مدارس الضاحية'],
       [settings?.subtitle ?? ''],
+      [settings?.address ?? ''],
+      [settings?.phone ?? ''],
       [`الفترة: من ${from} إلى ${to}`],
       [`عدد السجلات: ${data.length}`],
       [`تاريخ الإصدار: ${new Date().toLocaleString('ar-SA')}`],
     ];
     const wsMeta = XLSX.utils.aoa_to_sheet(meta);
     (wsMeta as any)['!views'] = [{ RTL: true }];
+    (wsMeta as any)['!cols'] = [{ wch: 50 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, wsMeta, 'بيانات المدرسة');
     XLSX.utils.book_append_sheet(wb, ws, 'تقرير');
     XLSX.writeFile(wb, `تقرير_${from}_${to}.xlsx`);
     toast.success('تم تصدير الملف');
+  }
+
+  async function markMissingAsAbsent() {
+    const target = todayISO();
+    if (target < from || target > to) {
+      toast.error('اضبط نطاق التاريخ ليشمل اليوم لاستخدام الغياب التلقائي');
+      return;
+    }
+    if (!confirm(`سيتم تسجيل جميع الطلاب${(!isAdmin && teacherStage) ? ` لمرحلة ${STAGE_LABELS[teacherStage]}` : ''} الذين لم يُمسح باركودهم اليوم كـ "غائب". متابعة؟`)) return;
+
+    let q = supabase.from('students').select('id, stage');
+    if (!isAdmin && teacherStage) q = q.eq('stage', teacherStage);
+    const { data: studs } = await q;
+    if (!studs?.length) { toast.error('لا يوجد طلاب'); return; }
+
+    const { data: marked } = await supabase.from('attendance_records')
+      .select('student_id').eq('date', target);
+    const markedIds = new Set((marked ?? []).map((m: any) => m.student_id));
+    const missing = studs.filter((s: any) => !markedIds.has(s.id));
+    if (!missing.length) { toast.success('لا يوجد غائبين — جميع الطلاب مسجَّلين'); return; }
+
+    const rows = missing.map((s: any) => ({
+      student_id: s.id, status: 'absent' as const, date: target,
+      teacher_id: null,
+    }));
+    const { error } = await supabase.from('attendance_records').insert(rows);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`تم تسجيل ${missing.length} طالب كـ "غائب"`);
+    load();
   }
 
   function exportPdf() {
