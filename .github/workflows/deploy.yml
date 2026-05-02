@@ -18,13 +18,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # حل مشكلة تعارض المكتبات التي ظهرت في سجلاتك
           npm install --legacy-peer-deps
           npm install xlsx jsbarcode @zxing/browser @zxing/library lucide-react @tanstack/react-query @supabase/supabase-js framer-motion clsx tailwind-merge --save --legacy-peer-deps
 
       - name: Build project
         run: |
-          # تنظيف الكود لنسخة الإنتاج
           sed -i "/lovable-tagger/d" vite.config.ts
           npm run build
         env:
@@ -33,14 +31,11 @@ jobs:
 
       - name: Prepare Files
         run: |
-          # إنشاء ملف htaccess لضمان عمل الروابط على هوستنجر
-          echo 'RewriteEngine On
+          echo 'Options -MultiViews
+          RewriteEngine On
           RewriteCond %{REQUEST_FILENAME} !-f
           RewriteCond %{REQUEST_FILENAME} !-d
-          RewriteRule . index.html [L]' > dist/.htaccess
-          
-          # تصحيح المسارات لتصبح نسبية وتعمل داخل مجلد aldaahia
-          sed -i "s|/assets/|assets/|g" dist/index.html
+          RewriteRule . /index.html [L]' > dist/.htaccess
 
       - name: Deploy to Hostinger
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
@@ -49,8 +44,6 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          # المسار بناءً على صورة مدير الملفات الخاصة بك
-          server-dir: /public_html/aldaahia/
+          server-dir: /domains/almalkieducational.com/public_html/aldaahia/
           protocol: ftp
           port: 21
-          
