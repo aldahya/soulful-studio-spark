@@ -64,11 +64,9 @@ export default function CameraScanner({ onDetected }: Props) {
           facingMode: { ideal: 'environment' as const },
           width: { ideal: 640 },
           height: { ideal: 480 },
-          // @ts-expect-error - focusMode غير معرّف في TS lib لكن مدعوم على بعض الأجهزة
-          focusMode: 'continuous',
-          // @ts-expect-error
-          advanced: [{ focusMode: 'continuous' }],
-        },
+          // focusMode غير معرّف في TS lib لكن مدعوم على بعض الأجهزة
+          ...({ focusMode: 'continuous', advanced: [{ focusMode: 'continuous' }] } as object),
+        } as MediaTrackConstraints,
       };
 
       await html5Qr.start(
