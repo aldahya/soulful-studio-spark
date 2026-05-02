@@ -15,6 +15,7 @@ import { useSchoolSettings } from '@/lib/school';
 import { useAuth } from '@/hooks/useAuth';
 import { openReportPdf, type ReportRow } from '@/lib/reportPdf';
 import { nowTimeLabel } from '@/lib/feedback';
+import { buildNotifyMessage, statusToKind, makeSentKey, wasSent, markSent, type NotifyKind } from '@/lib/whatsappTemplates';
 
 type EntryStatus = AttendanceStatus | 'permission';
 const ENTRY_LABELS: Record<EntryStatus, string> = { ...STATUS_LABELS, permission: 'استذان' };
@@ -448,7 +449,20 @@ export default function Reports() {
             </TableHeader>
             <TableBody>
               {filtered.map((r) => {
-                const wa = whatsAppLink(r.parent_phone, `إشعار: ${r.student_name} - ${ENTRY_LABELS[r.status]} بتاريخ ${formatDate(r.date)}`);
+                const kind: NotifyKind = statusToKind(r.status);
+                const time = r.status === 'permission' ? r.exit_time : r.check_in_time;
+                const msg = buildNotifyMessage(kind, {
+                  schoolName: settings?.school_name ?? 'مدارس الضاحية الأهلية للبنين',
+                  studentName: r.student_name,
+                  className: r.class_name,
+                  stage: r.stage,
+                  date: r.date,
+                  time: time ?? null,
+                  reason: r.reason ?? null,
+                });
+                const wa = whatsAppLink(r.parent_phone, msg);
+                const sentKey = makeSentKey(r.student_id, kind, r.date);
+                const already = wasSent(sentKey);
                 const cls = r.status === 'permission'
                   ? 'bg-accent/10 text-accent border-accent/20'
                   : STATUS_COLORS[r.status as AttendanceStatus];
@@ -469,9 +483,19 @@ export default function Reports() {
                     <TableCell className="text-center text-xs font-mono">{nowTimeLabel(r.return_time)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{r.reason ?? '—'}</TableCell>
                     <TableCell>
-                      {wa
-                        ? <Button asChild variant="ghost" size="icon"><a href={wa} target="_blank" rel="noopener noreferrer"><MessageCircle className="h-4 w-4 text-success" /></a></Button>
-                        : <span className="text-xs text-muted-foreground">—</span>}
+                      {wa ? (
+                        <Button
+                          asChild
+                          variant="ghost"
+                          size="icon"
+                          title={already ? 'تم الإرسال مسبقاً اليوم — اضغط لإعادة الفتح' : 'إرسال إشعار واتساب'}
+                          onClick={() => markSent(sentKey)}
+                        >
+                          <a href={wa} target="_blank" rel="noopener noreferrer">
+                            <MessageCircle className={`h-4 w-4 ${already ? 'text-muted-foreground' : 'text-success'}`} />
+                          </a>
+                        </Button>
+                      ) : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
                   </TableRow>
                 );

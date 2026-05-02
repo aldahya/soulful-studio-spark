@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowRight, Printer, MessageCircle, Loader2 } from 'lucide-react';
 import { STAGE_LABELS, STATUS_LABELS, STATUS_COLORS, type Stage, type AttendanceStatus, whatsAppLink, formatDate } from '@/lib/i18n';
+import { buildNotifyMessage } from '@/lib/whatsappTemplates';
 import JsBarcode from 'jsbarcode';
 import { sanitizeBarcode } from '@/lib/barcode';
 import { useSchoolSettings, SCHOOL_LOGO } from '@/lib/school';
@@ -65,7 +66,15 @@ export default function StudentDetail() {
     late: att.filter((a) => a.status === 'late').length,
     absent: att.filter((a) => a.status === 'absent').length,
   };
-  const wa = whatsAppLink(student.parent_phone, `السلام عليكم، إشعار من ${settings?.school_name ?? 'المدرسة'} بخصوص الطالب ${student.full_name}`);
+  const todayMsg = buildNotifyMessage('present', {
+    schoolName: settings?.school_name ?? 'مدارس الضاحية الأهلية للبنين',
+    studentName: student.full_name,
+    className: student.classes?.name ?? null,
+    stage: student.stage,
+    date: new Date(),
+    time: new Date(),
+  });
+  const wa = whatsAppLink(student.parent_phone, todayMsg);
 
   return (
     <div className="space-y-6">
