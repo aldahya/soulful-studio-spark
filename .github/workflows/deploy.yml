@@ -45,5 +45,6 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
           server-dir: /domains/almalkieducational.com/public_html/aldaahia/
-          protocol: ftp
+          protocol: ftps
           port: 21
+          security: loose
