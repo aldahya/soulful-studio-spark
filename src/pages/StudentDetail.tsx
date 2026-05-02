@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowRight, Printer, MessageCircle, Loader2 } from 'lucide-react';
 import { STAGE_LABELS, STATUS_LABELS, STATUS_COLORS, type Stage, type AttendanceStatus, whatsAppLink, formatDate } from '@/lib/i18n';
+import { buildNotifyMessage } from '@/lib/whatsappTemplates';
 import JsBarcode from 'jsbarcode';
 import { sanitizeBarcode } from '@/lib/barcode';
 import { useSchoolSettings, SCHOOL_LOGO } from '@/lib/school';
