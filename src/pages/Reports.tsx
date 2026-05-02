@@ -15,6 +15,7 @@ import { useSchoolSettings } from '@/lib/school';
 import { useAuth } from '@/hooks/useAuth';
 import { openReportPdf, type ReportRow } from '@/lib/reportPdf';
 import { nowTimeLabel } from '@/lib/feedback';
+import { buildNotifyMessage, statusToKind, makeSentKey, wasSent, markSent, type NotifyKind } from '@/lib/whatsappTemplates';
 
 type EntryStatus = AttendanceStatus | 'permission';
 const ENTRY_LABELS: Record<EntryStatus, string> = { ...STATUS_LABELS, permission: 'استذان' };
