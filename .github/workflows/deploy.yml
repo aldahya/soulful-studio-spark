@@ -18,13 +18,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # استخدام --legacy-peer-deps لحل مشكلة تعارض مكتبات zxing التي تظهر في السجلات
           npm install --legacy-peer-deps
           npm install xlsx jsbarcode @zxing/browser @zxing/library lucide-react @tanstack/react-query @supabase/supabase-js framer-motion clsx tailwind-merge --save --legacy-peer-deps
 
       - name: Build project
         run: |
-          # حذف تاجر لوفابول لضمان نظافة نسخة الإنتاج
           sed -i "/lovable-tagger/d" vite.config.ts
           npm run build
         env:
@@ -33,20 +31,14 @@ jobs:
 
       - name: Prepare Files
         run: |
-          # التأكد من نقل ملفات الـ PWA والصور للمجلد النهائي
           cp public/manifest.json dist/manifest.json || true
           cp public/sw.js dist/sw.js || true
           cp public/000.png dist/000.png || true
-          
-          # إنشاء ملف htaccess لضمان عمل الروابط الداخلية (SPA Routing) على هوستنجر
           echo 'RewriteEngine On
           RewriteCond %{REQUEST_FILENAME} !-f
           RewriteCond %{REQUEST_FILENAME} !-d
           RewriteRule . index.html [L]' > dist/.htaccess
-          
-          # تصحيح المسارات لتصبح نسبية (Relative Paths) لتعمل داخل المجلد الفرعي aldaahia
           sed -i "s|/assets/|assets/|g" dist/index.html
-          sed -i "s|/src/main.tsx|assets/index.js|g" dist/index.html
 
       - name: Deploy to Hostinger
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
@@ -55,7 +47,6 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          # تم ضبط المسار بناءً على صورة مدير الملفات الخاصة بك
           server-dir: /public_html/aldaahia/
           protocol: ftp
           port: 21
