@@ -18,8 +18,9 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # التعديل هنا: إضافة --legacy-peer-deps لتجاوز تعارض إصدارات مكتبة zxing
           npm install --legacy-peer-deps
-          npm install xlsx jsbarcode @zxing/browser @zxing/library lucide-react @tanstack/react-query @supabase/supabase-js framer-motion clsx tailwind-merge --save
+          npm install xlsx jsbarcode @zxing/browser @zxing/library lucide-react @tanstack/react-query @supabase/supabase-js framer-motion clsx tailwind-merge --save --legacy-peer-deps
 
       - name: Build project
         run: |
