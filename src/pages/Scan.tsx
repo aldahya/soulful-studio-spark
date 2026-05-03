@@ -152,7 +152,20 @@ export default function Scan() {
           }
         }
 
-        // لا يوجد استذان — نسأل المستخدم: تجاهل أم إصدار استذان
+        // الطالب حاضر بالفعل — تحقق من نافذة منع التكرار قبل فتح حوار الاستئذان
+        const checkInAt = existing.check_in_time ? new Date(existing.check_in_time).getTime() : 0;
+        const sinceCheckIn = now - checkInAt;
+        if (dupEnabled && sinceCheckIn < permWindowMs) {
+          // ضمن النافذة → اعتبره مسح متكرر بالخطأ، لا تفتح حوار الاستئذان
+          pushLog(false, `${student.full_name} — تم تسجيل حضوره مسبقاً ✅`, 'مكرر');
+          toast.success(`تم تسجيل حضور ${student.full_name} مسبقاً ✅`);
+          beepDuplicate();
+          setDupCard({ name: student.full_name, status: existing.status as AttendanceStatus });
+          setTimeout(() => setDupCard(null), 2500);
+          return;
+        }
+
+        // مر وقت كافٍ — نسأل المستخدم: تجاهل أم إصدار استذان
         setDupCtx({
           studentId: student.id,
           studentName: student.full_name,
@@ -163,8 +176,10 @@ export default function Scan() {
         return;
       }
 
-      // تسجيل حضور جديد — تحديد الحالة تلقائياً (بعد 7:30 = متأخر)
-      const finalStatus: AttendanceStatus = autoMode ? autoStatusByTime() : status;
+      // تسجيل حضور جديد — تحديد الحالة وفق وقت التأخر القابل للتعديل
+      const finalStatus: AttendanceStatus = autoMode
+        ? autoStatusByTime(new Date(), cfg.late_after_time ?? '07:30:00')
+        : status;
       const nowIso = new Date().toISOString();
       const { error: insErr } = await supabase
         .from('attendance_records')
