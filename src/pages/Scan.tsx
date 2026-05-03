@@ -293,7 +293,7 @@ export default function Scan() {
             <label className="flex items-center gap-2 text-xs cursor-pointer rounded-lg border bg-muted/30 px-3 py-2">
               <input type="checkbox" checked={autoMode} onChange={(e) => setAutoMode(e.target.checked)} />
               <span className="font-semibold">وضع تلقائي</span>
-              <span className="text-muted-foreground">(متأخر بعد 7:30)</span>
+              <span className="text-muted-foreground">(متأخر بعد {(settings?.late_after_time ?? '07:30:00').slice(0,5)})</span>
             </label>
           </div>
 
