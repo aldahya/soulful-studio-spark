@@ -10,7 +10,21 @@ export interface SchoolSettings {
   subtitle: string;
   address: string | null;
   phone: string | null;
+  late_after_time: string; // 'HH:MM:SS'
+  duplicate_window_seconds: number;
+  duplicate_protection_enabled: boolean;
+  permission_window_minutes: number;
 }
+
+export const DEFAULT_SETTINGS: Pick<
+  SchoolSettings,
+  'late_after_time' | 'duplicate_window_seconds' | 'duplicate_protection_enabled' | 'permission_window_minutes'
+> = {
+  late_after_time: '07:30:00',
+  duplicate_window_seconds: 20,
+  duplicate_protection_enabled: true,
+  permission_window_minutes: 5,
+};
 
 export function useSchoolSettings() {
   const [settings, setSettings] = useState<SchoolSettings | null>(null);

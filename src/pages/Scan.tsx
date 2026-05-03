@@ -17,14 +17,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import CameraScanner from '@/components/CameraScanner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { beepSuccess, beepError, autoStatusByTime } from '@/lib/feedback';
+import { beepSuccess, beepError, beepDuplicate, autoStatusByTime } from '@/lib/feedback';
+import { DEFAULT_SETTINGS, type SchoolSettings } from '@/lib/school';
 
 interface LogEntry { time: string; ok: boolean; text: string; tag?: string }
 interface DupContext {
   studentId: string; studentName: string; studentNumber: string; existingStatus: AttendanceStatus;
 }
-
-const RESCAN_COOLDOWN_MS = 1500; // أسرع — منع المسح المتكرر بالخطأ
 
 export default function Scan() {
   const { user, isAdmin, teacherId, teacherStage } = useAuth();
@@ -36,6 +35,9 @@ export default function Scan() {
   const inputRef = useRef<HTMLInputElement>(null);
   const lastScan = useRef<{ code: string; at: number }>({ code: '', at: 0 });
   const processing = useRef(false);
+  const [settings, setSettings] = useState<SchoolSettings | null>(null);
+  // بطاقة معاينة سريعة عند تكرار المسح
+  const [dupCard, setDupCard] = useState<{ name: string; status: AttendanceStatus } | null>(null);
 
   // duplicate dialog
   const [dupOpen, setDupOpen] = useState(false);
@@ -49,6 +51,8 @@ export default function Scan() {
   useEffect(() => {
     document.title = 'مسح الباركود | نظام الضاحية';
     inputRef.current?.focus();
+    supabase.from('school_settings').select('*').limit(1).maybeSingle()
+      .then(({ data }) => { if (data) setSettings(data as SchoolSettings); });
   }, [user]);
 
   function pushLog(ok: boolean, text: string, tag?: string) {
@@ -69,10 +73,16 @@ export default function Scan() {
 
   async function processCode(trimmed: string) {
     if (processing.current) return;
-    // منع المسح المتكرر بالخطأ خلال نافذة قصيرة
+    const cfg = settings ?? ({ ...DEFAULT_SETTINGS } as SchoolSettings);
+    const dupWindowMs = (cfg.duplicate_window_seconds ?? 20) * 1000;
+    const permWindowMs = (cfg.permission_window_minutes ?? 5) * 60 * 1000;
+    const dupEnabled = cfg.duplicate_protection_enabled ?? true;
+
+    // حماية فورية ضد المسح المكرر السريع لنفس الباركود
     const now = Date.now();
-    if (lastScan.current.code === trimmed && now - lastScan.current.at < RESCAN_COOLDOWN_MS) {
+    if (dupEnabled && lastScan.current.code === trimmed && now - lastScan.current.at < dupWindowMs) {
       pushLog(false, `تجاهل مسح مكرر سريع: ${trimmed}`, 'تكرار');
+      beepDuplicate();
       return;
     }
     lastScan.current = { code: trimmed, at: now };
@@ -142,7 +152,20 @@ export default function Scan() {
           }
         }
 
-        // لا يوجد استذان — نسأل المستخدم: تجاهل أم إصدار استذان
+        // الطالب حاضر بالفعل — تحقق من نافذة منع التكرار قبل فتح حوار الاستئذان
+        const checkInAt = existing.check_in_time ? new Date(existing.check_in_time).getTime() : 0;
+        const sinceCheckIn = now - checkInAt;
+        if (dupEnabled && sinceCheckIn < permWindowMs) {
+          // ضمن النافذة → اعتبره مسح متكرر بالخطأ، لا تفتح حوار الاستئذان
+          pushLog(false, `${student.full_name} — تم تسجيل حضوره مسبقاً ✅`, 'مكرر');
+          toast.success(`تم تسجيل حضور ${student.full_name} مسبقاً ✅`);
+          beepDuplicate();
+          setDupCard({ name: student.full_name, status: existing.status as AttendanceStatus });
+          setTimeout(() => setDupCard(null), 2500);
+          return;
+        }
+
+        // مر وقت كافٍ — نسأل المستخدم: تجاهل أم إصدار استذان
         setDupCtx({
           studentId: student.id,
           studentName: student.full_name,
@@ -153,8 +176,10 @@ export default function Scan() {
         return;
       }
 
-      // تسجيل حضور جديد — تحديد الحالة تلقائياً (بعد 7:30 = متأخر)
-      const finalStatus: AttendanceStatus = autoMode ? autoStatusByTime() : status;
+      // تسجيل حضور جديد — تحديد الحالة وفق وقت التأخر القابل للتعديل
+      const finalStatus: AttendanceStatus = autoMode
+        ? autoStatusByTime(new Date(), cfg.late_after_time ?? '07:30:00')
+        : status;
       const nowIso = new Date().toISOString();
       const { error: insErr } = await supabase
         .from('attendance_records')
@@ -240,6 +265,17 @@ export default function Scan() {
               <XCircle className="h-32 w-32 text-destructive" strokeWidth={3} />
             </div>
           )}
+          {dupCard && (
+            <div className="pointer-events-none absolute right-4 top-4 z-20 max-w-xs rounded-xl border border-success/30 bg-success/10 px-4 py-3 shadow-lg backdrop-blur animate-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-success" />
+                <div>
+                  <p className="text-sm font-bold text-success">{dupCard.name}</p>
+                  <p className="text-xs text-success/80">تم تسجيل حضوره مسبقاً</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="mb-4 flex flex-wrap items-center gap-2 justify-between">
             <div className="flex flex-wrap gap-2">
@@ -257,7 +293,7 @@ export default function Scan() {
             <label className="flex items-center gap-2 text-xs cursor-pointer rounded-lg border bg-muted/30 px-3 py-2">
               <input type="checkbox" checked={autoMode} onChange={(e) => setAutoMode(e.target.checked)} />
               <span className="font-semibold">وضع تلقائي</span>
-              <span className="text-muted-foreground">(متأخر بعد 7:30)</span>
+              <span className="text-muted-foreground">(متأخر بعد {(settings?.late_after_time ?? '07:30:00').slice(0,5)})</span>
             </label>
           </div>
 

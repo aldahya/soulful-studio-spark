@@ -211,7 +211,11 @@ export type Database = {
       school_settings: {
         Row: {
           address: string | null
+          duplicate_protection_enabled: boolean
+          duplicate_window_seconds: number
           id: string
+          late_after_time: string
+          permission_window_minutes: number
           phone: string | null
           school_name: string
           subtitle: string
@@ -219,7 +223,11 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          duplicate_protection_enabled?: boolean
+          duplicate_window_seconds?: number
           id?: string
+          late_after_time?: string
+          permission_window_minutes?: number
           phone?: string | null
           school_name?: string
           subtitle?: string
@@ -227,7 +235,11 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          duplicate_protection_enabled?: boolean
+          duplicate_window_seconds?: number
           id?: string
+          late_after_time?: string
+          permission_window_minutes?: number
           phone?: string | null
           school_name?: string
           subtitle?: string
