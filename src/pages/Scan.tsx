@@ -73,10 +73,16 @@ export default function Scan() {
 
   async function processCode(trimmed: string) {
     if (processing.current) return;
-    // منع المسح المتكرر بالخطأ خلال نافذة قصيرة
+    const cfg = settings ?? ({ ...DEFAULT_SETTINGS } as SchoolSettings);
+    const dupWindowMs = (cfg.duplicate_window_seconds ?? 20) * 1000;
+    const permWindowMs = (cfg.permission_window_minutes ?? 5) * 60 * 1000;
+    const dupEnabled = cfg.duplicate_protection_enabled ?? true;
+
+    // حماية فورية ضد المسح المكرر السريع لنفس الباركود
     const now = Date.now();
-    if (lastScan.current.code === trimmed && now - lastScan.current.at < RESCAN_COOLDOWN_MS) {
+    if (dupEnabled && lastScan.current.code === trimmed && now - lastScan.current.at < dupWindowMs) {
       pushLog(false, `تجاهل مسح مكرر سريع: ${trimmed}`, 'تكرار');
+      beepDuplicate();
       return;
     }
     lastScan.current = { code: trimmed, at: now };
