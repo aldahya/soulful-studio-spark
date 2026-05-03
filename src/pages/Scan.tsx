@@ -17,14 +17,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import CameraScanner from '@/components/CameraScanner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { beepSuccess, beepError, autoStatusByTime } from '@/lib/feedback';
+import { beepSuccess, beepError, beepDuplicate, autoStatusByTime } from '@/lib/feedback';
+import { DEFAULT_SETTINGS, type SchoolSettings } from '@/lib/school';
 
 interface LogEntry { time: string; ok: boolean; text: string; tag?: string }
 interface DupContext {
   studentId: string; studentName: string; studentNumber: string; existingStatus: AttendanceStatus;
 }
-
-const RESCAN_COOLDOWN_MS = 1500; // أسرع — منع المسح المتكرر بالخطأ
 
 export default function Scan() {
   const { user, isAdmin, teacherId, teacherStage } = useAuth();
