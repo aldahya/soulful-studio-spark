@@ -35,6 +35,9 @@ export default function Scan() {
   const inputRef = useRef<HTMLInputElement>(null);
   const lastScan = useRef<{ code: string; at: number }>({ code: '', at: 0 });
   const processing = useRef(false);
+  const [settings, setSettings] = useState<SchoolSettings | null>(null);
+  // بطاقة معاينة سريعة عند تكرار المسح
+  const [dupCard, setDupCard] = useState<{ name: string; status: AttendanceStatus } | null>(null);
 
   // duplicate dialog
   const [dupOpen, setDupOpen] = useState(false);
@@ -48,6 +51,8 @@ export default function Scan() {
   useEffect(() => {
     document.title = 'مسح الباركود | نظام الضاحية';
     inputRef.current?.focus();
+    supabase.from('school_settings').select('*').limit(1).maybeSingle()
+      .then(({ data }) => { if (data) setSettings(data as SchoolSettings); });
   }, [user]);
 
   function pushLog(ok: boolean, text: string, tag?: string) {
