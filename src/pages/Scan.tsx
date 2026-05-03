@@ -265,6 +265,17 @@ export default function Scan() {
               <XCircle className="h-32 w-32 text-destructive" strokeWidth={3} />
             </div>
           )}
+          {dupCard && (
+            <div className="pointer-events-none absolute right-4 top-4 z-20 max-w-xs rounded-xl border border-success/30 bg-success/10 px-4 py-3 shadow-lg backdrop-blur animate-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-success" />
+                <div>
+                  <p className="text-sm font-bold text-success">{dupCard.name}</p>
+                  <p className="text-xs text-success/80">تم تسجيل حضوره مسبقاً</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="mb-4 flex flex-wrap items-center gap-2 justify-between">
             <div className="flex flex-wrap gap-2">
