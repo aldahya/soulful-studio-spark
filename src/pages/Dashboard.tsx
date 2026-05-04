@@ -253,6 +253,35 @@ export default function Dashboard() {
         </div>
       </section>
 
+      {/* Scan events — last 7 days */}
+      <section>
+        <Card className="p-6 shadow-soft">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold">أحداث المسح — آخر 7 أيام</h3>
+              <p className="text-xs text-muted-foreground">إحصاءات الحماية ضد التكرار والاستذانات.</p>
+            </div>
+            <Badge variant="outline" className="bg-brand/10 text-primary border-brand/30">أسبوعي</Badge>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { label: 'مسح مكرر تم تجاهله', value: scanWeek.duplicate, icon: Copy, tone: 'text-warning bg-warning/10 border-warning/20' },
+              { label: 'استذانات صادرة', value: scanWeek.permission_issued, icon: FileSignature, tone: 'text-primary bg-primary/10 border-primary/20' },
+              { label: 'خروج باستذان', value: scanWeek.permission_used, icon: LogOut, tone: 'text-accent-foreground bg-accent/10 border-accent/30' },
+              { label: 'عودات مسجَّلة', value: scanWeek.permission_returned, icon: Undo2, tone: 'text-success bg-success/10 border-success/20' },
+            ].map((s) => (
+              <div key={s.label} className={`flex items-center gap-3 rounded-xl border p-4 ${s.tone}`}>
+                <s.icon className="h-6 w-6" />
+                <div>
+                  <p className="text-xs opacity-80">{s.label}</p>
+                  <p className="text-2xl font-extrabold tabular-nums">{s.value.toLocaleString('ar-SA')}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </section>
+
       {/* Charts */}
       <section className="grid gap-4 lg:grid-cols-3">
         <Card className="p-6 shadow-soft lg:col-span-2">
