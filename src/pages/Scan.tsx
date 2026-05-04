@@ -130,6 +130,10 @@ export default function Scan() {
             await supabase.from('permission_logs').insert({
               permission_id: perm.id, action: 'used', actor_id: user!.id,
             });
+            await supabase.from('scan_events').insert({
+              kind: 'permission_used', student_id: student.id, actor_id: user!.id,
+              meta: { permission_id: perm.id },
+            });
             pushLog(true, `${student.full_name} (${student.student_number}) — تم تسجيل الخروج`, 'استذان');
             toast.success(`تم استهلاك الاستذان: ${student.full_name}`);
             beepSuccess(); flashOk();
@@ -144,6 +148,10 @@ export default function Scan() {
           if (!retErr) {
             await supabase.from('permission_logs').insert({
               permission_id: perm.id, action: 'returned', actor_id: user!.id,
+            });
+            await supabase.from('scan_events').insert({
+              kind: 'permission_returned', student_id: student.id, actor_id: user!.id,
+              meta: { permission_id: perm.id },
             });
             pushLog(true, `${student.full_name} — تم تسجيل العودة`, 'عودة');
             toast.success(`عودة الطالب: ${student.full_name}`);
@@ -232,6 +240,10 @@ export default function Scan() {
     } else {
       toast.success(`تم إصدار استذان لـ ${dupCtx.studentName}`);
       pushLog(true, `${dupCtx.studentName} (${dupCtx.studentNumber}) — استذان جديد`, 'استذان جديد');
+      await supabase.from('scan_events').insert({
+        kind: 'permission_issued', student_id: dupCtx.studentId, actor_id: user!.id,
+        meta: { reason: permReason || 'خروج من المدرسة' },
+      });
     }
     setPermOpen(false);
     setDupCtx(null);
