@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Users, GraduationCap, UserCog, ClipboardCheck, TrendingUp, ScanLine,
   FileSignature, FileBarChart, ArrowLeft, Sparkles, CalendarDays, Loader2,
+  Copy, LogOut, Undo2, ShieldAlert,
 } from 'lucide-react';
 import { useSchoolSettings } from '@/lib/school';
 import { todayISO, formatDate, STATUS_LABELS } from '@/lib/i18n';
@@ -35,6 +36,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats>({ students: 0, classes: 0, teachers: 0, presentToday: 0, absentToday: 0, lateToday: 0, permissionsToday: 0 });
   const [trend, setTrend] = useState<DayPoint[]>([]);
   const [recent, setRecent] = useState<RecentRow[]>([]);
+  const [scanWeek, setScanWeek] = useState({ duplicate: 0, permission_issued: 0, permission_used: 0, permission_returned: 0 });
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(new Date());
 
@@ -52,7 +54,9 @@ export default function Dashboard() {
     start.setDate(start.getDate() - 6);
     const startISO = start.toISOString().slice(0, 10);
 
-    const [s, c, t, todayAtt, weekAtt, perms, recentAtt] = await Promise.all([
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 7);
+    const [s, c, t, todayAtt, weekAtt, perms, recentAtt, scans] = await Promise.all([
       supabase.from('students').select('id', { count: 'exact', head: true }),
       supabase.from('classes').select('id', { count: 'exact', head: true }),
       supabase.from('teachers').select('id', { count: 'exact', head: true }),
@@ -65,6 +69,7 @@ export default function Dashboard() {
         .eq('date', today)
         .order('recorded_at', { ascending: false })
         .limit(8),
+      supabase.from('scan_events').select('kind').gte('created_at', weekStart.toISOString()),
     ]);
 
     const tRecords = todayAtt.data ?? [];
@@ -104,6 +109,13 @@ export default function Dashboard() {
         time: new Date(r.recorded_at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
       })),
     );
+
+    const scanCounts = { duplicate: 0, permission_issued: 0, permission_used: 0, permission_returned: 0 };
+    (scans.data ?? []).forEach((r: any) => {
+      if (r.kind in scanCounts) (scanCounts as any)[r.kind]++;
+    });
+    setScanWeek(scanCounts);
+
     setLoading(false);
   }
 
@@ -239,6 +251,35 @@ export default function Dashboard() {
             </Link>
           ))}
         </div>
+      </section>
+
+      {/* Scan events — last 7 days */}
+      <section>
+        <Card className="p-6 shadow-soft">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold">أحداث المسح — آخر 7 أيام</h3>
+              <p className="text-xs text-muted-foreground">إحصاءات الحماية ضد التكرار والاستذانات.</p>
+            </div>
+            <Badge variant="outline" className="bg-brand/10 text-primary border-brand/30">أسبوعي</Badge>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { label: 'مسح مكرر تم تجاهله', value: scanWeek.duplicate, icon: Copy, tone: 'text-warning bg-warning/10 border-warning/20' },
+              { label: 'استذانات صادرة', value: scanWeek.permission_issued, icon: FileSignature, tone: 'text-primary bg-primary/10 border-primary/20' },
+              { label: 'خروج باستذان', value: scanWeek.permission_used, icon: LogOut, tone: 'text-accent-foreground bg-accent/10 border-accent/30' },
+              { label: 'عودات مسجَّلة', value: scanWeek.permission_returned, icon: Undo2, tone: 'text-success bg-success/10 border-success/20' },
+            ].map((s) => (
+              <div key={s.label} className={`flex items-center gap-3 rounded-xl border p-4 ${s.tone}`}>
+                <s.icon className="h-6 w-6" />
+                <div>
+                  <p className="text-xs opacity-80">{s.label}</p>
+                  <p className="text-2xl font-extrabold tabular-nums">{s.value.toLocaleString('ar-SA')}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
       </section>
 
       {/* Charts */}
