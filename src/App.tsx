@@ -15,6 +15,7 @@ import Teachers from "./pages/Teachers";
 import Attendance from "./pages/Attendance";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import Roles from "./pages/Roles";
 import Scan from "./pages/Scan";
 import Permissions from "./pages/Permissions";
 import NotFound from "./pages/NotFound";
@@ -41,6 +42,7 @@ const App = () => (
               <Route path="attendance" element={<Attendance />} />
               <Route path="reports" element={<Reports />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="roles" element={<ProtectedRoute requireAdmin><Roles /></ProtectedRoute>} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
