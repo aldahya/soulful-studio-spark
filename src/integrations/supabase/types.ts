@@ -208,6 +208,41 @@ export type Database = {
         }
         Relationships: []
       }
+      scan_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          id: string
+          kind: string
+          meta: Json
+          student_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          meta?: Json
+          student_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          meta?: Json
+          student_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scan_events_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       school_settings: {
         Row: {
           address: string | null

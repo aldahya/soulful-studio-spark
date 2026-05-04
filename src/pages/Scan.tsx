@@ -162,6 +162,11 @@ export default function Scan() {
           beepDuplicate();
           setDupCard({ name: student.full_name, status: existing.status as AttendanceStatus });
           setTimeout(() => setDupCard(null), 2500);
+          // سجل حدث المسح المكرر للتقارير
+          supabase.from('scan_events').insert({
+            kind: 'duplicate', student_id: student.id, actor_id: user!.id,
+            meta: { since_check_in_seconds: Math.round(sinceCheckIn / 1000) },
+          }).then(() => {});
           return;
         }
 
