@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Users, GraduationCap, UserCog, ClipboardCheck, TrendingUp, ScanLine,
   FileSignature, FileBarChart, ArrowLeft, Sparkles, CalendarDays, Loader2,
+  Copy, LogOut, Undo2, ShieldAlert,
 } from 'lucide-react';
 import { useSchoolSettings } from '@/lib/school';
 import { todayISO, formatDate, STATUS_LABELS } from '@/lib/i18n';
@@ -35,6 +36,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats>({ students: 0, classes: 0, teachers: 0, presentToday: 0, absentToday: 0, lateToday: 0, permissionsToday: 0 });
   const [trend, setTrend] = useState<DayPoint[]>([]);
   const [recent, setRecent] = useState<RecentRow[]>([]);
+  const [scanWeek, setScanWeek] = useState({ duplicate: 0, permission_issued: 0, permission_used: 0, permission_returned: 0 });
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(new Date());
 
@@ -52,7 +54,9 @@ export default function Dashboard() {
     start.setDate(start.getDate() - 6);
     const startISO = start.toISOString().slice(0, 10);
 
-    const [s, c, t, todayAtt, weekAtt, perms, recentAtt] = await Promise.all([
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 7);
+    const [s, c, t, todayAtt, weekAtt, perms, recentAtt, scans] = await Promise.all([
       supabase.from('students').select('id', { count: 'exact', head: true }),
       supabase.from('classes').select('id', { count: 'exact', head: true }),
       supabase.from('teachers').select('id', { count: 'exact', head: true }),
@@ -65,6 +69,7 @@ export default function Dashboard() {
         .eq('date', today)
         .order('recorded_at', { ascending: false })
         .limit(8),
+      supabase.from('scan_events').select('kind').gte('created_at', weekStart.toISOString()),
     ]);
 
     const tRecords = todayAtt.data ?? [];
@@ -104,6 +109,13 @@ export default function Dashboard() {
         time: new Date(r.recorded_at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
       })),
     );
+
+    const scanCounts = { duplicate: 0, permission_issued: 0, permission_used: 0, permission_returned: 0 };
+    (scans.data ?? []).forEach((r: any) => {
+      if (r.kind in scanCounts) (scanCounts as any)[r.kind]++;
+    });
+    setScanWeek(scanCounts);
+
     setLoading(false);
   }
 
