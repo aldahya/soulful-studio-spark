@@ -37,8 +37,8 @@ export function toWhatsAppNumber(phone?: string | null): string | null {
 export function whatsAppLink(phone: string | null | undefined, message?: string): string | null {
   const num = toWhatsAppNumber(phone);
   if (!num) return null;
-  const base = `https://web.whatsapp.com/send?phone=${num}`;
-  return message ? `${base}&text=${encodeURIComponent(message)}` : base;
+  const base = `https://wa.me/${num}`;
+  return message ? `${base}?text=${encodeURIComponent(message)}` : base;
 }
 
 export function formatDate(d: string | Date): string {
