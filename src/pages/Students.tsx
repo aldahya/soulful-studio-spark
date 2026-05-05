@@ -172,16 +172,27 @@ export default function Students() {
 
       if (!payloads.length) { toast.error('لا توجد صفوف صالحة'); return; }
 
-      // Upsert in chunks
+      // Skip students that already exist (by student_number)
+      const existingNumbers = new Set(students.map((s) => s.student_number));
+      const numbers = payloads.map((p) => p.student_number);
+      const { data: existingRows } = await supabase
+        .from('students')
+        .select('student_number')
+        .in('student_number', numbers);
+      (existingRows ?? []).forEach((r: any) => existingNumbers.add(r.student_number));
+
+      const fresh = payloads.filter((p) => !existingNumbers.has(p.student_number));
+      const skipped = payloads.length - fresh.length;
+
       let inserted = 0;
-      for (let i = 0; i < payloads.length; i += 200) {
-        const chunk = payloads.slice(i, i + 200);
-        const { error } = await supabase.from('students').upsert(chunk, { onConflict: 'student_number' });
+      for (let i = 0; i < fresh.length; i += 200) {
+        const chunk = fresh.slice(i, i + 200);
+        const { error } = await supabase.from('students').insert(chunk);
         if (error) { errors.push(error.message); break; }
         inserted += chunk.length;
       }
-      if (errors.length) toast.error(`أُدخل ${inserted}. أخطاء: ${errors.slice(0, 2).join(' | ')}`);
-      else toast.success(`تم استيراد ${inserted} طالب`);
+      if (errors.length) toast.error(`أُدخل ${inserted}. تم تخطي ${skipped}. أخطاء: ${errors.slice(0, 2).join(' | ')}`);
+      else toast.success(`تم استيراد ${inserted} طالب${skipped ? ` — تم تخطي ${skipped} موجود مسبقاً` : ''}`);
       load();
     } finally {
       setImporting(false);
