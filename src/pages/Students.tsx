@@ -172,16 +172,23 @@ export default function Students() {
 
       if (!payloads.length) { toast.error('لا توجد صفوف صالحة'); return; }
 
-      // Skip students that already exist (by student_number)
-      const existingNumbers = new Set(students.map((s) => s.student_number));
-      const numbers = payloads.map((p) => p.student_number);
+      // Skip students that already exist (by full_name, normalized)
+      const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+      const existingNames = new Set(students.map((s) => normalize(s.full_name)));
+      const names = Array.from(new Set(payloads.map((p) => normalize(p.full_name))));
       const { data: existingRows } = await supabase
         .from('students')
-        .select('student_number')
-        .in('student_number', numbers);
-      (existingRows ?? []).forEach((r: any) => existingNumbers.add(r.student_number));
+        .select('full_name')
+        .in('full_name', names);
+      (existingRows ?? []).forEach((r: any) => existingNames.add(normalize(r.full_name)));
 
-      const fresh = payloads.filter((p) => !existingNumbers.has(p.student_number));
+      const seenInBatch = new Set<string>();
+      const fresh = payloads.filter((p) => {
+        const n = normalize(p.full_name);
+        if (existingNames.has(n) || seenInBatch.has(n)) return false;
+        seenInBatch.add(n);
+        return true;
+      });
       const skipped = payloads.length - fresh.length;
 
       let inserted = 0;
