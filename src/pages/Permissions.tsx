@@ -71,10 +71,9 @@ export default function Permissions() {
     setLoading(false);
   }
 
-  async function issue(e: React.FormEvent) {
-    e.preventDefault();
+  async function issueWithCode(rawCode: string) {
     if (!user) return;
-    const trimmed = code.trim();
+    const trimmed = rawCode.trim();
     if (!trimmed) return;
     setIssuing(true);
     try {
@@ -96,7 +95,6 @@ export default function Permissions() {
         else toast.error(error.message);
         return;
       }
-      // log
       const { data: created } = await supabase
         .from('permissions').select('id').eq('student_id', student.id).eq('date', todayISO()).maybeSingle();
       if (created) {
@@ -112,6 +110,21 @@ export default function Permissions() {
       setIssuing(false);
     }
   }
+
+  async function issue(e: React.FormEvent) {
+    e.preventDefault();
+    await issueWithCode(code);
+  }
+
+  const lastScanRef = useRef<{ code: string; at: number }>({ code: '', at: 0 });
+  function onCameraDetected(text: string) {
+    const now = Date.now();
+    if (lastScanRef.current.code === text && now - lastScanRef.current.at < 5000) return;
+    lastScanRef.current = { code: text, at: now };
+    setCode(text);
+    issueWithCode(text);
+  }
+
 
   async function markReturned(p: PermRow) {
     if (!user) return;
