@@ -215,6 +215,10 @@ export default function Permissions() {
               </Button>
             </div>
           </form>
+          <div className="mt-6 border-t pt-4">
+            <h3 className="mb-2 text-sm font-bold">المسح بالكاميرا</h3>
+            <CameraScanner onDetected={onCameraDetected} />
+          </div>
         </Card>
       )}
 
