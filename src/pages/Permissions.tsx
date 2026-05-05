@@ -13,6 +13,7 @@ import { ScanLine, FileSignature, Loader2, Printer, RotateCcw } from 'lucide-rea
 import { todayISO, formatDate } from '@/lib/i18n';
 import { toast } from 'sonner';
 import { useSchoolSettings } from '@/lib/school';
+import CameraScanner from '@/components/CameraScanner';
 
 const REASONS = [
   'مراجعة طبية',
