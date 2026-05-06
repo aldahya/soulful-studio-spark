@@ -58,11 +58,15 @@ export function whatsAppLink(phone: string | null | undefined, message?: string)
   return `${base}?text=${encodeURIComponent(clean)}`;
 }
 
-export function whatsAppTarget(): '_blank' | '_top' {
+export function openWhatsAppLink(link: string): boolean {
   try {
-    return window.self !== window.top ? '_top' : '_blank';
+    const popup = window.open('', '_blank');
+    if (!popup) return false;
+    popup.opener = null;
+    popup.location.href = link;
+    return true;
   } catch {
-    return '_blank';
+    return false;
   }
 }
 
