@@ -51,7 +51,11 @@ export function whatsAppLink(phone: string | null | undefined, message?: string)
   // E.164 sanity check: 8–15 digits, no leading zero
   if (!num || !/^[1-9]\d{7,14}$/.test(num)) return null;
   const base = `https://wa.me/${num}`;
-  return message ? `${base}?text=${encodeURIComponent(message)}` : base;
+  if (!message) return base;
+  // Sanitize: NFC normalize and strip the Unicode replacement char (U+FFFD) which
+  // breaks WhatsApp's parser and shows a blank page.
+  const clean = message.normalize('NFC').replace(/\uFFFD/g, '').slice(0, 3500);
+  return `${base}?text=${encodeURIComponent(clean)}`;
 }
 
 export function formatDate(d: string | Date): string {
