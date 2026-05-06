@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, formatDate, todayISO, type AttendanceStatus, type Stage, whatsAppLink, toWhatsAppNumber } from '@/lib/i18n';
+import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, formatDate, todayISO, type AttendanceStatus, type Stage, whatsAppLink, toWhatsAppNumber, whatsAppTarget } from '@/lib/i18n';
 import { Download, MessageCircle, Loader2, Send, LogOut, FileText, User as UserIcon, UserX } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
@@ -306,7 +306,7 @@ export default function Reports() {
         ].join('\n');
         const link = whatsAppLink(s.parent_phone, msg);
         if (link) {
-          const w = window.open(link, '_blank', 'noopener,noreferrer');
+          const w = window.open(link, whatsAppTarget(), 'noopener,noreferrer');
           if (w) opened++;
           await new Promise((r) => setTimeout(r, 500));
         }
@@ -491,7 +491,7 @@ export default function Reports() {
                           title={already ? 'تم الإرسال مسبقاً اليوم — اضغط لإعادة الفتح' : 'إرسال إشعار واتساب'}
                           onClick={() => markSent(sentKey)}
                         >
-                          <a href={wa} target="_blank" rel="noopener noreferrer">
+                          <a href={wa} target={whatsAppTarget()} rel="noopener noreferrer">
                             <MessageCircle className={`h-4 w-4 ${already ? 'text-muted-foreground' : 'text-success'}`} />
                           </a>
                         </Button>

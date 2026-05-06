@@ -58,6 +58,14 @@ export function whatsAppLink(phone: string | null | undefined, message?: string)
   return `${base}?text=${encodeURIComponent(clean)}`;
 }
 
+export function whatsAppTarget(): '_blank' | '_top' {
+  try {
+    return window.self !== window.top ? '_top' : '_blank';
+  } catch {
+    return '_blank';
+  }
+}
+
 export function formatDate(d: string | Date): string {
   const date = typeof d === 'string' ? new Date(d) : d;
   return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
