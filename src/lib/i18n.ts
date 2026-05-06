@@ -27,16 +27,29 @@ export const STATUS_COLORS: Record<AttendanceStatus, string> = {
 
 export function toWhatsAppNumber(phone?: string | null): string | null {
   if (!phone) return null;
-  const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('966')) return digits;
-  if (digits.startsWith('05')) return '966' + digits.slice(1);
+  // remove everything except digits (drops +, spaces, dashes, parentheses, RTL marks…)
+  let digits = phone.replace(/\D/g, '');
+  if (!digits) return null;
+  // strip international prefix "00"
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  // already in international form
+  if (digits.startsWith('966')) {
+    const rest = digits.slice(3).replace(/^0+/, '');
+    return '966' + rest;
+  }
+  // local Saudi format 05xxxxxxxx
+  if (digits.startsWith('05') && digits.length === 10) return '966' + digits.slice(1);
+  // bare 9-digit mobile starting with 5
   if (digits.startsWith('5') && digits.length === 9) return '966' + digits;
+  // strip any leading zeros for other countries
+  digits = digits.replace(/^0+/, '');
   return digits || null;
 }
 
 export function whatsAppLink(phone: string | null | undefined, message?: string): string | null {
   const num = toWhatsAppNumber(phone);
-  if (!num) return null;
+  // E.164 sanity check: 8–15 digits, no leading zero
+  if (!num || !/^[1-9]\d{7,14}$/.test(num)) return null;
   const base = `https://wa.me/${num}`;
   return message ? `${base}?text=${encodeURIComponent(message)}` : base;
 }
