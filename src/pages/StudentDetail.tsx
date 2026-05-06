@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowRight, Printer, MessageCircle, Loader2 } from 'lucide-react';
-import { STAGE_LABELS, STATUS_LABELS, STATUS_COLORS, type Stage, type AttendanceStatus, whatsAppLink, formatDate, whatsAppTarget } from '@/lib/i18n';
+import { STAGE_LABELS, STATUS_LABELS, STATUS_COLORS, type Stage, type AttendanceStatus, whatsAppLink, formatDate, openWhatsAppLink } from '@/lib/i18n';
 import { buildNotifyMessage } from '@/lib/whatsappTemplates';
 import JsBarcode from 'jsbarcode';
 import { sanitizeBarcode } from '@/lib/barcode';
@@ -96,7 +96,7 @@ export default function StudentDetail() {
             <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">ملاحظات</dt><dd>{student.notes ?? '—'}</dd></div>
           </dl>
           <div className="mt-6 flex gap-2">
-            {wa && <Button asChild variant="outline" className="gap-2"><a href={wa} target={whatsAppTarget()} rel="noopener noreferrer"><MessageCircle className="h-4 w-4 text-success" /> واتساب</a></Button>}
+            {wa && <Button variant="outline" className="gap-2" onClick={() => openWhatsAppLink(wa)}><MessageCircle className="h-4 w-4 text-success" /> واتساب</Button>}
           </div>
         </Card>
 
