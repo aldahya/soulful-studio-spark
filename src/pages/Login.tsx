@@ -1,12 +1,9 @@
 // src/pages/Login.tsx — النسخة المحدّثة لدعم متعدد المدارس
-// يقرأ ?school=slug من الرابط ويعرض اسم وبيانات المدرسة الصحيحة
-// عند إنشاء حساب جديد يربط المستخدم بالمدرسة المختارة تلقائياً
-
 import { useState, useEffect } from 'react';
 import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { SCHOOL_LOGO } from '@/lib/school';
+import { SCHOOL_LOGOS } from '@/lib/school';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,7 +11,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Loader2, ShieldCheck, UserPlus, ScanLine, BarChart3, FileSignature, Mail, Lock, User, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-// ─── بيانات ثابتة للمدارس الأربع (لصفحة اللوجن فقط) ──────────
 const SCHOOLS: Record<string, { name: string; subtitle: string; color: string; gradient: string }> = {
   'dahya-boys': {
     name:     'مدارس الضاحية الأهلية',
@@ -25,8 +21,8 @@ const SCHOOLS: Record<string, { name: string; subtitle: string; color: string; g
   'dahya-girls': {
     name:     'مدارس الضاحية الأهلية',
     subtitle: 'للبنات',
-    color:    'hsl(338 65% 42%)',
-    gradient: 'linear-gradient(140deg, hsl(340 50% 14%), hsl(338 60% 32%), hsl(350 55% 52%))',
+    color:    'hsl(215 60% 38%)',
+    gradient: 'linear-gradient(140deg, hsl(215 50% 12%), hsl(215 58% 28%), hsl(215 55% 48%))',
   },
   'ajyal': {
     name:     'مدارس أجيال المعالي الأهلية',
@@ -51,6 +47,7 @@ export default function Login() {
 
   const schoolSlug = searchParams.get('school') ?? 'dahya-boys';
   const schoolInfo = SCHOOLS[schoolSlug] ?? DEFAULT_SCHOOL;
+  const schoolLogo = SCHOOL_LOGOS[schoolSlug] ?? SCHOOL_LOGOS['dahya-boys'];
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
@@ -60,11 +57,10 @@ export default function Login() {
 
   useEffect(() => {
     document.title = `تسجيل الدخول | ${schoolInfo.name}`;
-    // احفظ slug المدرسة عشان نستخدمه بعد التسجيل
     localStorage.setItem('school_slug', schoolSlug);
   }, [schoolSlug, schoolInfo.name]);
 
-  if (!loading && session) return <Navigate to="/" replace />;
+  if (!loading && session) return <Navigate to="/dashboard" replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,9 +70,8 @@ export default function Login() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success('مرحباً بك');
-        navigate('/', { replace: true });
+        navigate('/dashboard', { replace: true });
       } else {
-        // جيب school_id من جدول schools
         const { data: schoolRow, error: schoolErr } = await supabase
           .from('schools')
           .select('id')
@@ -89,17 +84,16 @@ export default function Login() {
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/`,
+            emailRedirectTo: `${window.location.origin}/dashboard`,
             data: { full_name: fullName },
           },
         });
         if (signUpErr) throw signUpErr;
 
-        // أضف user_role مع school_id (بدون منح دور — المدير يمنحه لاحقاً)
         if (signUpData.user) {
           await supabase.from('user_roles').insert({
             user_id:   signUpData.user.id,
-            role:      'teacher',          // دور مؤقت، المدير يغيره
+            role:      'teacher',
             school_id: schoolRow.id,
           });
         }
@@ -121,7 +115,6 @@ export default function Login() {
 
   return (
     <div dir="rtl" className="relative min-h-screen overflow-hidden bg-gradient-mesh">
-      {/* Blobs ديكورية */}
       <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full blur-3xl animate-blob"
            style={{ background: `${schoolInfo.color}33` }} />
       <div className="pointer-events-none absolute -left-24 top-1/3 h-80 w-80 rounded-full blur-3xl animate-blob"
@@ -129,13 +122,12 @@ export default function Login() {
 
       <div className="relative mx-auto grid min-h-screen w-full max-w-7xl items-center gap-10 px-4 py-10 lg:grid-cols-[1.1fr_1fr] lg:gap-16 lg:px-10">
 
-        {/* لوحة البراند */}
         <aside className="hidden lg:flex flex-col justify-between rounded-3xl p-10 text-white shadow-xl min-h-[640px]"
                style={{ background: schoolInfo.gradient }}>
           <div>
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-white/10 p-2 backdrop-blur ring-1 ring-white/20">
-                <img src={SCHOOL_LOGO} alt="شعار المدرسة" className="h-12 w-12 object-contain" />
+                <img src={schoolLogo} alt="شعار المدرسة" className="h-12 w-12 object-contain" />
               </div>
               <div>
                 <h2 className="text-lg font-extrabold">{schoolInfo.name}</h2>
@@ -149,8 +141,7 @@ export default function Login() {
                 نظام الحضور الذكي
               </span>
               <h1 className="text-4xl font-extrabold leading-tight">
-                إدارة حضور المدرسة
-                <br />أصبحت أبسط بكثير
+                إدارة حضور المدرسة<br />أصبحت أبسط بكثير
               </h1>
               <p className="max-w-md text-sm leading-relaxed text-white/75">
                 منصة احترافية متكاملة للحضور والاستذانات والتقارير، مصممة لمدارسنا بواجهة عربية حديثة وأمان عالٍ.
@@ -170,23 +161,23 @@ export default function Login() {
             ))}
           </ul>
 
-          {/* رابط الرجوع للبوابة الرئيسية */}
-          <a
-            href="/"
-            className="mt-6 flex items-center gap-2 text-xs text-white/60 hover:text-white/90 transition-colors"
-          >
+          <a href="/" className="mt-6 flex items-center gap-2 text-xs text-white/60 hover:text-white/90 transition-colors">
             <Building2 className="h-3.5 w-3.5" />
             <span>العودة لبوابة مجموعة المالكي</span>
           </a>
         </aside>
 
-        {/* نموذج تسجيل الدخول */}
         <div className="w-full max-w-md mx-auto">
           <div className="rounded-3xl bg-card/95 p-8 shadow-xl ring-1 ring-border/50 backdrop-blur">
+            <a href="/" className="lg:hidden flex items-center gap-2 text-xs text-muted-foreground mb-6 hover:text-foreground transition-colors">
+              <Building2 className="h-3.5 w-3.5" />
+              <span>بوابة مجموعة المالكي</span>
+            </a>
+
             <div className="mb-8 text-center">
               <div className="mx-auto mb-4 h-16 w-16 overflow-hidden rounded-2xl"
                    style={{ background: schoolInfo.gradient }}>
-                <img src={SCHOOL_LOGO} alt="" className="h-full w-full object-contain p-2" />
+                <img src={schoolLogo} alt="" className="h-full w-full object-contain p-2" />
               </div>
               <h2 className="text-2xl font-extrabold tracking-tight">
                 {mode === 'signin' ? 'مرحباً بعودتك 👋' : 'إنشاء حساب جديد'}
