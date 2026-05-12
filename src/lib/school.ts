@@ -7,6 +7,30 @@ export function useSchoolId(): string | null {
   return schoolId ?? null;
 }
 
+/** نوع إعدادات المدرسة (يطابق جدول school_settings في Supabase) */
+export interface SchoolSettings {
+  id?: string;
+  school_id?: string;
+  school_name: string;
+  subtitle?: string;
+  logo_url?: string;
+  phone?: string;
+  address?: string;
+  late_threshold_minutes?: number;
+  school_start_time?: string;
+  school_end_time?: string;
+}
+
+/** الإعدادات الافتراضية للمدرسة */
+export const DEFAULT_SETTINGS: SchoolSettings = {
+  school_name: 'مدارس الضاحية الأهلية',
+  subtitle: 'للبنين',
+  logo_url: '/logos/dahya-boys.png',
+  late_threshold_minutes: 15,
+  school_start_time: '07:30',
+  school_end_time: '14:00',
+};
+
 /** خريطة لوجوهات المدارس */
 export const SCHOOL_LOGOS: Record<string, string> = {
   'dahya-boys':  '/logos/dahya-boys.png',
