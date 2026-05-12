@@ -13,6 +13,7 @@ import {
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScanLine, CheckCircle2, AlertCircle, Clock, XCircle, LogOut, ArrowLeftRight, Keyboard, Camera, ShieldAlert } from 'lucide-react';
 import { STATUS_LABELS, STAGE_LABELS, todayISO, type AttendanceStatus } from '@/lib/i18n';
+import { buildNotifyMessage } from '@/lib/whatsappTemplates';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import CameraScanner from '@/components/CameraScanner';
@@ -89,7 +90,7 @@ export default function Scan() {
     processing.current = true;
     try {
       const { data: student, error } = await supabase
-        .from('students').select('id, full_name, student_number, stage')
+        .from('students').select('id, full_name, student_number, stage, parent_phone, classes(name)')
         .eq('barcode', trimmed).maybeSingle();
 
       if (error || !student) {
@@ -137,6 +138,23 @@ export default function Scan() {
             pushLog(true, `${student.full_name} (${student.student_number}) — تم تسجيل الخروج`, 'استذان');
             toast.success(`تم استهلاك الاستذان: ${student.full_name}`);
             beepSuccess(); flashOk();
+        // إضافة إشعار واتساب للطابور إذا كان الطالب غائباً وعنده رقم هاتف
+        if (finalStatus === 'absent' && (student as any).parent_phone) {
+          const absMsg = buildNotifyMessage('absent', {
+            schoolName: settings?.school_name ?? 'مدارس الضاحية الأهلية',
+            studentName: student.full_name,
+            className: (student as any).classes?.name ?? null,
+            stage: student.stage as any,
+            date: new Date(),
+          });
+          supabase.from('whatsapp_queue').insert({
+            student_id: student.id,
+            phone: (student as any).parent_phone,
+            message: absMsg,
+            scheduled_at: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
+            status: 'pending',
+          }).then(() => {});
+        }
           }
           return;
         }
