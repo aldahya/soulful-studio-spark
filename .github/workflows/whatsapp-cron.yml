@@ -1,0 +1,22 @@
+name: WhatsApp Absence Notifier
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  process-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call WhatsApp Queue Processor
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.SUPABASE_EDGE_FUNCTION_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}")
+          echo "Response code: $response"
+          if [ "$response" != "200" ]; then
+            echo "Error: Unexpected response $response"
+            exit 1
+          fi
