@@ -8,15 +8,17 @@ import { useEffect, useMemo, useState } from 'react';
   import { Label } from '@/components/ui/label';
   import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
   import { STATUS_LABELS, STATUS_COLORS, STAGE_LABELS, formatDate, todayISO, type AttendanceStatus, type Stage } from '@/lib/i18n';
-  import { Loader2, Download, LogOut } from 'lucide-react';
+  import { Loader2, Download, LogOut, MessageCircle, CheckCircle2 } from 'lucide-react';
   import * as XLSX from 'xlsx';
   import { useAuth } from '@/hooks/useAuth';
+  import { useToast } from '@/hooks/use-toast';
 
   type Filter = 'all' | AttendanceStatus | 'permission';
 
   interface AttRow {
     kind: 'attendance'; id: string; status: AttendanceStatus; date: string; recorded_at: string;
     student_name: string; student_number: string; stage: Stage; class_name: string | null; teacher_name: string | null;
+    student_id?: string;
   }
   interface PermRow {
     kind: 'permission'; id: string; status: 'pending' | 'used' | 'returned'; date: string; recorded_at: string;
@@ -28,11 +30,14 @@ import { useEffect, useMemo, useState } from 'react';
 
   export default function Attendance() {
     const { isAdmin, teacherStage, schoolId } = useAuth();
+    const { toast } = useToast();
     const [rows, setRows] = useState<Row[]>([]);
     const [date, setDate] = useState(todayISO());
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState<Filter>('all');
     const [stageFilter, setStageFilter] = useState<'all' | Stage>('all');
+    const [sending, setSending] = useState<Record<string, boolean>>({});
+    const [sent, setSent] = useState<Record<string, boolean>>({});
 
     useEffect(() => { document.title = 'سجل الحضور | نظام الضاحية'; }, []);
     useEffect(() => { if (schoolId) load(); }, [date, schoolId]);
@@ -48,7 +53,7 @@ import { useEffect, useMemo, useState } from 'react';
       const [att, perms] = await Promise.all([
         supabase
           .from('attendance_full_view')
-          .select('id, status, date, recorded_at, student_name, student_number, stage, class_name, teacher_name')
+          .select('id, status, date, recorded_at, student_name, student_number, stage, class_name, teacher_name, student_id')
           .eq('date', date)
           .eq('school_id', schoolId)
           .order('recorded_at', { ascending: false }),
@@ -64,6 +69,7 @@ import { useEffect, useMemo, useState } from 'react';
         id: r.id, status: r.status, date: r.date, recorded_at: r.recorded_at,
         student_name: r.student_name ?? '—', student_number: r.student_number ?? '',
         stage: r.stage, class_name: r.class_name ?? null, teacher_name: r.teacher_name ?? null,
+        student_id: r.student_id ?? null,
       }));
 
       const p: Row[] = ((perms.data ?? []) as any[])
@@ -77,7 +83,66 @@ import { useEffect, useMemo, useState } from 'react';
         }));
 
       setRows([...a, ...p].sort((x, y) => y.recorded_at.localeCompare(x.recorded_at)));
+      setSent({});
       setLoading(false);
+    }
+
+    async function sendWhatsApp(row: AttRow) {
+      if (!row.student_id) return;
+      setSending((s) => ({ ...s, [row.id]: true }));
+      try {
+        const { data: student } = await supabase
+          .from('students')
+          .select('full_name, parent_phone')
+          .eq('id', row.student_id)
+          .maybeSingle();
+
+        if (!student?.parent_phone) {
+          toast({ title: 'لا يوجد رقم', description: 'لم يُسجَّل رقم ولي الأمر لهذا الطالب', variant: 'destructive' });
+          return;
+        }
+
+        const { data: settings } = await supabase
+          .from('school_settings')
+          .select('school_name')
+          .eq('school_id', schoolId!)
+          .maybeSingle();
+
+        const schoolName = (settings as any)?.school_name ?? 'المدرسة';
+        const formattedDate = new Date(row.date).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+        const message = `🏫 ${schoolName}
+  ━━━━━━━━━━━━━━━━━━
+  السلام عليكم ورحمة الله وبركاته،
+
+  نحيطكم علماً بأن الطالب:
+  👤 ${student.full_name}
+
+  لم يتم تسجيل حضوره لهذا اليوم ❌
+  يرجى تزويد المدرسة بسبب الغياب.
+
+  📅 التاريخ: ${formattedDate}
+  ━━━━━━━━━━━━━━━━━━
+  نأمل منكم متابعة انتظام الطالب الدراسي 📚`;
+
+        const { error } = await supabase.from('whatsapp_queue').insert({
+          student_id: row.student_id,
+          school_id: schoolId,
+          phone: student.parent_phone,
+          message,
+          scheduled_at: new Date(Date.now() - 60000).toISOString(),
+          status: 'pending',
+        });
+
+        if (error) throw error;
+
+        setSent((s) => ({ ...s, [row.id]: true }));
+        toast({ title: 'تم الإضافة للطابور ✅', description: 'ستُرسل الرسالة خلال دقائق' });
+      } catch (e: any) {
+        toast({ title: 'خطأ', description: e.message ?? 'فشل الإرسال', variant: 'destructive' });
+      } finally {
+        setSending((s) => ({ ...s, [row.id]: false }));
+      }
     }
 
     const filtered = useMemo(() => rows.filter((r) => {
@@ -163,6 +228,7 @@ import { useEffect, useMemo, useState } from 'react';
                   <TableHead>تفاصيل</TableHead>
                   <TableHead>المعلم</TableHead>
                   <TableHead>الوقت</TableHead>
+                  <TableHead>إشعار</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -180,9 +246,31 @@ import { useEffect, useMemo, useState } from 'react';
                     <TableCell className="text-xs text-muted-foreground">{r.kind === 'permission' ? (r as PermRow).reason : '—'}</TableCell>
                     <TableCell>{r.teacher_name ?? '—'}</TableCell>
                     <TableCell className="text-xs text-muted-foreground" dir="ltr">{new Date(r.recorded_at).toLocaleTimeString('ar-SA')}</TableCell>
+                    <TableCell>
+                      {r.kind === 'attendance' && (r as AttRow).status === 'absent' ? (
+                        sent[r.id] ? (
+                          <span className="flex items-center gap-1 text-xs text-green-600">
+                            <CheckCircle2 className="h-4 w-4" /> تم
+                          </span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1 text-xs text-green-700 border-green-300 hover:bg-green-50"
+                            disabled={sending[r.id]}
+                            onClick={() => sendWhatsApp(r as AttRow)}
+                          >
+                            {sending[r.id]
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : <MessageCircle className="h-3 w-3" />}
+                            إشعار
+                          </Button>
+                        )
+                      ) : '—'}
+                    </TableCell>
                   </TableRow>
                 ))}
-                {!filtered.length && <TableRow><TableCell colSpan={8} className="py-12 text-center text-muted-foreground">لا توجد سجلات</TableCell></TableRow>}
+                {!filtered.length && <TableRow><TableCell colSpan={9} className="py-12 text-center text-muted-foreground">لا توجد سجلات</TableCell></TableRow>}
               </TableBody>
             </Table>
           )}
