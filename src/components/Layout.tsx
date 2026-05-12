@@ -1,6 +1,6 @@
 import { NavLink, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { useSchoolSettings, SCHOOL_LOGO } from '@/lib/school';
+import { useSchoolSettings, SCHOOL_LOGOS, GROUP_LOGO } from '@/lib/school';
 import {
   LayoutDashboard, Users, GraduationCap, UserCog, ClipboardList,
   ScanLine, FileBarChart, Settings, LogOut, Menu, X, FileSignature, Shield,
@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 const adminNav = [
-  { to: '/', icon: LayoutDashboard, label: 'لوحة التحكم', end: true },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'لوحة التحكم', end: true },
   { to: '/scan', icon: ScanLine, label: 'مسح الباركود' },
   { to: '/permissions', icon: FileSignature, label: 'الاستذانات' },
   { to: '/students', icon: Users, label: 'الطلاب' },
@@ -23,7 +23,7 @@ const adminNav = [
 ];
 
 const teacherNav = [
-  { to: '/', icon: LayoutDashboard, label: 'لوحة التحكم', end: true },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'لوحة التحكم', end: true },
   { to: '/scan', icon: ScanLine, label: 'مسح الباركود' },
   { to: '/permissions', icon: FileSignature, label: 'الاستذانات' },
   { to: '/attendance', icon: ClipboardList, label: 'سجل الحضور' },
@@ -31,15 +31,19 @@ const teacherNav = [
 ];
 
 export function Layout() {
-  const { isAdmin, signOut, user } = useAuth();
+  const { isAdmin, signOut, user, school } = useAuth();
   const settings = useSchoolSettings();
   const nav = isAdmin ? adminNav : teacherNav;
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
+  // اختر لوجو المدرسة الصحيح
+  const schoolSlug = school?.slug ?? localStorage.getItem('school_slug') ?? 'dahya-boys';
+  const schoolLogo = SCHOOL_LOGOS[schoolSlug] ?? GROUP_LOGO;
+
   const handleLogout = async () => {
     await signOut();
-    navigate('/login', { replace: true });
+    navigate('/', { replace: true });
   };
 
   return (
@@ -47,7 +51,7 @@ export function Layout() {
       {/* Mobile header */}
       <header className="fixed inset-x-0 top-0 z-30 flex items-center justify-between border-b border-border/40 bg-card/95 px-4 py-3 backdrop-blur lg:hidden">
         <div className="flex items-center gap-2">
-          <img src={SCHOOL_LOGO} alt="شعار المدرسة" className="h-9 w-9 object-contain" />
+          <img src={schoolLogo} alt="شعار المدرسة" className="h-9 w-9 object-contain" />
           <span className="text-sm font-bold text-primary">{settings?.school_name ?? 'الضاحية'}</span>
         </div>
         <Button variant="ghost" size="icon" onClick={() => setOpen(!open)}>
@@ -63,7 +67,7 @@ export function Layout() {
         )}
       >
         <div className="flex items-center gap-3 border-b border-sidebar-border px-6 py-6">
-          <img src={SCHOOL_LOGO} alt="شعار المدرسة" className="h-12 w-12 object-contain" />
+          <img src={schoolLogo} alt="شعار المدرسة" className="h-12 w-12 object-contain" />
           <div className="flex-1">
             <h1 className="text-base font-bold leading-tight text-sidebar-foreground">
               {settings?.school_name ?? 'مدارس الضاحية'}
