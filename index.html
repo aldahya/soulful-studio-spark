@@ -2,35 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/اتنا.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>AlDahya</title>
-    <meta name="description" content="النظام الذكى لتسجيل الحضور لمدرسة الضاحية الأهلية لبنين">
-    <meta name="author" content="Lovable" />
+    <title>مجموعة المالكي التعليمية</title>
+    <meta name="description" content="النظام الذكى لتسجيل الحضور لمدارس مجموعة المالكي التعليمية">
+    <meta name="author" content="AlMalki Educational Group" />
 
-    <!-- PWA Meta Tags - Optimized for Fullscreen -->
+    <!-- PWA Meta Tags -->
     <link rel="manifest" href="manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="مدرسة الداهية">
-    <link rel="apple-touch-icon" href="000.png">
-    <meta name="theme-color" content="#3b82f6">
+    <meta name="apple-mobile-web-app-title" content="مجموعة المالكي">
+    <link rel="apple-touch-icon" href="/اتنا.png">
+    <meta name="theme-color" content="#0f766e">
 
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/999718bd-0292-47b5-a13a-ca319697b035/id-preview-d806d491--cd16a8dd-7285-45b1-b4ec-4a621eeb06d7.lovable.app-1777526882185.png">
-
+    <meta property="og:title" content="مجموعة المالكي التعليمية">
+    <meta property="og:description" content="النظام الذكى لتسجيل الحضور لمدارس مجموعة المالكي التعليمية">
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Lovable" />
-    <meta name="twitter:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/999718bd-0292-47b5-a13a-ca319697b035/id-preview-d806d491--cd16a8dd-7285-45b1-b4ec-4a621eeb06d7.lovable.app-1777526882185.png">
-    
-    
-    
-    
-    
+    <meta name="twitter:title" content="مجموعة المالكي التعليمية">
+    <meta name="twitter:description" content="النظام الذكى لتسجيل الحضور لمدارس مجموعة المالكي التعليمية">
 
     <!-- Service Worker Registration -->
     <script>
-      if ('serviceWorker' in navigator  ) {
+      if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('sw.js').then(reg => {
             console.log('SW registered');
@@ -38,15 +34,10 @@
         });
       }
     </script>
-    <meta property="og:title" content="AlDahya">
-  <meta name="twitter:title" content="AlDahya">
-  <meta property="og:description" content="النظام الذكى لتسجيل الحضور لمدرسة الضاحية الأهلية لبنين">
-  <meta name="twitter:description" content="النظام الذكى لتسجيل الحضور لمدرسة الضاحية الأهلية لبنين">
-</head>
+  </head>
 
   <body>
     <div id="root"></div>
-    <!-- TEST_V1 -->
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
