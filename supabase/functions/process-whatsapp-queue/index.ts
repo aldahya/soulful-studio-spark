@@ -7,7 +7,6 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
   const GREEN_API_TOKEN = Deno.env.get('GREEN_API_TOKEN')!;
   const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? '';
 
-  // تحويل رقم هاتف سعودي → تنسيق Green API
   function formatPhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.startsWith('966')) return `${digits}@c.us`;
@@ -26,6 +25,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
         body: JSON.stringify({ chatId, message }),
       });
       const json = await res.json();
+      console.log('Green API response:', JSON.stringify(json));
       return res.ok && !!json.idMessage;
     } catch (e) {
       console.error('Green API error:', e);
@@ -34,16 +34,43 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
   }
 
   serve(async (req) => {
-    // التحقق من صحة الطلب (من GitHub Actions فقط)
+    // CORS
+    if (req.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
+        },
+      });
+    }
+
     const secret = req.headers.get('x-cron-secret') ?? '';
-    if (CRON_SECRET && secret !== CRON_SECRET) {
-      return new Response('Unauthorized', { status: 401 });
+    const authHeader = req.headers.get('Authorization') ?? '';
+    let authorized = false;
+
+    // 1. Cron secret check (GitHub Actions)
+    if (CRON_SECRET && secret === CRON_SECRET) {
+      authorized = true;
+    }
+
+    // 2. Authenticated Supabase user check (frontend direct call)
+    if (!authorized && authHeader.startsWith('Bearer ')) {
+      try {
+        const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+        const userToken = authHeader.replace('Bearer ', '');
+        const { data: { user }, error } = await supabaseAdmin.auth.getUser(userToken);
+        if (!error && user) authorized = true;
+      } catch (_) { /* ignore */ }
+    }
+
+    if (!authorized) {
+      return new Response('Unauthorized', { status: 401,
+        headers: { 'Access-Control-Allow-Origin': '*' } });
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const now = new Date().toISOString();
 
-    // جلب الرسائل المستحقة الإرسال
     const { data: items, error } = await supabase
       .from('whatsapp_queue')
       .select('*')
@@ -53,17 +80,22 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
     if (error) {
       console.error('Queue fetch error:', error);
-      return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+      });
     }
 
     if (!items || items.length === 0) {
-      return new Response(JSON.stringify({ processed: 0, message: 'لا رسائل مستحقة' }), { status: 200 });
+      return new Response(JSON.stringify({ processed: 0, message: 'لا رسائل مستحقة' }), {
+        status: 200,
+        headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+      });
     }
 
     let sent = 0, cancelled = 0, failed = 0;
 
     for (const item of items) {
-      // التحقق: هل الطالب لا يزال غائباً؟ (قد يكون المعلم صحَّح الخطأ)
       const today = item.scheduled_at.slice(0, 10);
       const { data: latestAtt } = await supabase
         .from('attendance_records')
@@ -75,7 +107,6 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
         .maybeSingle();
 
       if (latestAtt && latestAtt.status !== 'absent') {
-        // الطالب حضر أو تم تصحيح حالته — إلغاء الإشعار
         await supabase.from('whatsapp_queue').update({
           status: 'cancelled',
           sent_at: now,
@@ -84,9 +115,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
         continue;
       }
 
-      // الإرسال عبر Green API
       const ok = await sendWhatsApp(item.phone, item.message);
-
       await supabase.from('whatsapp_queue').update({
         status: ok ? 'sent' : 'failed',
         sent_at: now,
@@ -95,7 +124,6 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
       if (ok) sent++;
       else failed++;
 
-      // تأخير 2 ثانية بين الرسائل لتجنب الحظر
       if (items.indexOf(item) < items.length - 1) {
         await new Promise((r) => setTimeout(r, 2000));
       }
@@ -103,6 +131,9 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
     const result = { processed: items.length, sent, cancelled, failed };
     console.log('WhatsApp queue result:', result);
-    return new Response(JSON.stringify(result), { status: 200 });
+    return new Response(JSON.stringify(result), {
+      status: 200,
+      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+    });
   });
   
