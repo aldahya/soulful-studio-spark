@@ -52,9 +52,10 @@ export default function Scan() {
   useEffect(() => {
     document.title = 'مسح الباركود | نظام الضاحية';
     inputRef.current?.focus();
-    supabase.from('school_settings').select('*').limit(1).maybeSingle()
+    if (!schoolId) return;
+    supabase.from('school_settings').select('*').eq('school_id', schoolId).maybeSingle()
       .then(({ data }) => { if (data) setSettings(data as SchoolSettings); });
-  }, [user]);
+  }, [user, schoolId]);
 
   function pushLog(ok: boolean, text: string, tag?: string) {
     setLog((l) => [{ time: new Date().toLocaleTimeString('ar-SA'), ok, text, tag }, ...l].slice(0, 30));
