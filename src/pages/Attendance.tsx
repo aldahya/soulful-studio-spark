@@ -178,17 +178,19 @@ import { useEffect, useMemo, useState } from 'react';
             const student = studentsMap[row.student_number];
             if (!student?.parent_phone) continue;
             const message = buildMessage(student.full_name, schoolName);
-            const { data: inserted, error } = await supabase.from('whatsapp_queue').insert({
+            const newId = crypto.randomUUID();
+            const { error } = await supabase.from('whatsapp_queue').insert({
+              id: newId,
               student_id: student.id,
               phone: student.parent_phone, message,
               scheduled_at: new Date(Date.now() - 60000).toISOString(),
               status: 'pending',
-            }).select('id').single();
-            if (!error && inserted) {
+            });
+            if (!error) {
               queued++;
               newSent[row.id] = true;
-              queueIds.push(inserted.id);
-              initialResults.push({ id: inserted.id, name: student.full_name, phone: student.parent_phone, status: 'pending' });
+              queueIds.push(newId);
+              initialResults.push({ id: newId, name: student.full_name, phone: student.parent_phone, status: 'pending' });
             }
           }
           setSent((s) => ({ ...s, ...newSent }));
