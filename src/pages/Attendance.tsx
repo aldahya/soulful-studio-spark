@@ -38,6 +38,8 @@ import { useEffect, useMemo, useState } from 'react';
     const [sending, setSending] = useState<Record<string, boolean>>({});
     const [sent, setSent] = useState<Record<string, boolean>>({});
     const [bulkSending, setBulkSending] = useState(false);
+      const [notifResults, setNotifResults] = useState<Array<{id: string; name: string; phone: string; status: string}> | null>(null);
+      const [notifPolling, setNotifPolling] = useState<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => { document.title = 'سجل الحضور | نظام الضاحية'; }, []);
     useEffect(() => { if (schoolId) load(); }, [date, schoolId]);
@@ -149,46 +151,69 @@ import { useEffect, useMemo, useState } from 'react';
     }
 
     async function sendBulk() {
-      const absentRows = filtered.filter(
-        (r) => r.kind === 'attendance' && (r as AttRow).status === 'absent' && !sent[r.id]
-      ) as AttRow[];
-      if (absentRows.length === 0) {
-        toast({ title: 'لا يوجد غائبون', description: 'لا توجد سجلات غياب في القائمة الحالية' });
-        return;
-      }
-      setBulkSending(true);
-      try {
-        const studentNumbers = absentRows.map((r) => r.student_number).filter(Boolean);
-        const [{ data: students }, { data: settings }] = await Promise.all([
-          supabase.from('students').select('id, full_name, student_number, parent_phone')
-            .in('student_number', studentNumbers).eq('school_id', schoolId!),
-          supabase.from('school_settings').select('school_name').eq('school_id', schoolId!).maybeSingle(),
-        ]);
-        const schoolName = (settings as any)?.school_name ?? 'المدرسة';
-        const studentsMap = Object.fromEntries((students ?? []).map((s) => [s.student_number, s]));
-        let queued = 0;
-        const newSent: Record<string, boolean> = {};
-        for (const row of absentRows) {
-          const student = studentsMap[row.student_number];
-          if (!student?.parent_phone) continue;
-          const message = buildMessage(student.full_name, schoolName);
-          const { error } = await supabase.from('whatsapp_queue').insert({
-            student_id: student.id,
-            phone: student.parent_phone, message,
-            scheduled_at: new Date(Date.now() - 60000).toISOString(),
-            status: 'pending',
-          });
-          if (!error) { queued++; newSent[row.id] = true; }
+        const absentRows = filtered.filter(
+          (r) => r.kind === 'attendance' && (r as AttRow).status === 'absent' && !sent[r.id]
+        ) as AttRow[];
+        if (absentRows.length === 0) {
+          toast({ title: 'لا يوجد غائبون', description: 'لا توجد سجلات غياب في القائمة الحالية' });
+          return;
         }
-        setSent((s) => ({ ...s, ...newSent }));
-        if (queued > 0) { supabase.functions.invoke('smart-handler', { headers: { 'x-bulk': 'true' } }).catch(() => {}); }
-        toast({ title: `تم إرسال ${queued} رسالة ✅`, description: `من أصل ${absentRows.length} غائب` });
-      } catch (e: any) {
-        toast({ title: 'خطأ', description: e.message ?? 'فشل الإرسال الجماعي', variant: 'destructive' });
-      } finally {
-        setBulkSending(false);
+        setBulkSending(true);
+        if (notifPolling) clearInterval(notifPolling);
+        setNotifResults(null);
+        try {
+          const studentNumbers = absentRows.map((r) => r.student_number).filter(Boolean);
+          const [{ data: students }, { data: settings }] = await Promise.all([
+            supabase.from('students').select('id, full_name, student_number, parent_phone')
+              .in('student_number', studentNumbers).eq('school_id', schoolId!),
+            supabase.from('school_settings').select('school_name').eq('school_id', schoolId!).maybeSingle(),
+          ]);
+          const schoolName = (settings as any)?.school_name ?? 'المدرسة';
+          const studentsMap = Object.fromEntries((students ?? []).map((s) => [s.student_number, s]));
+          let queued = 0;
+          const newSent: Record<string, boolean> = {};
+          const queueIds: string[] = [];
+          const initialResults: Array<{id: string; name: string; phone: string; status: string}> = [];
+          for (const row of absentRows) {
+            const student = studentsMap[row.student_number];
+            if (!student?.parent_phone) continue;
+            const message = buildMessage(student.full_name, schoolName);
+            const { data: inserted, error } = await supabase.from('whatsapp_queue').insert({
+              student_id: student.id,
+              phone: student.parent_phone, message,
+              scheduled_at: new Date(Date.now() - 60000).toISOString(),
+              status: 'pending',
+            }).select('id').single();
+            if (!error && inserted) {
+              queued++;
+              newSent[row.id] = true;
+              queueIds.push(inserted.id);
+              initialResults.push({ id: inserted.id, name: student.full_name, phone: student.parent_phone, status: 'pending' });
+            }
+          }
+          setSent((s) => ({ ...s, ...newSent }));
+          setNotifResults(initialResults);
+          if (queued > 0) {
+            supabase.functions.invoke('smart-handler', { headers: { 'x-bulk': 'true' } }).catch(() => {});
+            const poll = setInterval(async () => {
+              const { data } = await supabase.from('whatsapp_queue').select('id, status').in('id', queueIds);
+              if (data) {
+                setNotifResults(prev => prev ? prev.map(r => ({
+                  ...r, status: data.find(d => d.id === r.id)?.status ?? r.status,
+                })) : prev);
+                const allDone = data.every(d => d.status !== 'pending');
+                if (allDone) clearInterval(poll);
+              }
+            }, 8000);
+            setNotifPolling(poll);
+          }
+          toast({ title: `تم جدولة ${queued} رسالة ✅`, description: 'جاري الإرسال — راجع نتائج الإشعار أدناه' });
+        } catch (e: any) {
+          toast({ title: 'خطأ', description: e.message ?? 'فشل الإرسال الجماعي', variant: 'destructive' });
+        } finally {
+          setBulkSending(false);
+        }
       }
-    }
 
     const filtered = useMemo(() => rows.filter((r) => {
       if (!isAdmin && teacherStage && r.stage !== teacherStage) return false;
@@ -267,6 +292,52 @@ import { useEffect, useMemo, useState } from 'react';
             </Button>
           </div>
         </header>
+
+          {notifResults && notifResults.length > 0 && (
+            <Card className="shadow-soft border-green-200">
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="font-bold text-base flex items-center gap-2">
+                    <span>📊</span> نتائج الإشعار الجماعي
+                    {notifResults.some(r => r.status === 'pending') && (
+                      <span className="text-xs text-muted-foreground animate-pulse">جاري التحديث...</span>
+                    )}
+                  </h2>
+                  <div className="flex gap-3 text-sm">
+                    <span className="text-green-600 font-medium">✅ {notifResults.filter(r => r.status === 'sent').length} أُرسلت</span>
+                    <span className="text-red-500 font-medium">❌ {notifResults.filter(r => r.status === 'failed').length} فشل</span>
+                    <span className="text-gray-400 font-medium">⚫ {notifResults.filter(r => r.status === 'cancelled').length} لُغيت</span>
+                    <span className="text-amber-500 font-medium">⏳ {notifResults.filter(r => r.status === 'pending').length} بانتظار</span>
+                  </div>
+                </div>
+                <div className="overflow-auto max-h-56 rounded border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted sticky top-0">
+                      <tr>
+                        <th className="text-right px-3 py-2 font-medium">الطالب</th>
+                        <th className="text-right px-3 py-2 font-medium">رقم الهاتف</th>
+                        <th className="text-right px-3 py-2 font-medium">الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {notifResults.map((r) => (
+                        <tr key={r.id} className="border-t hover:bg-muted/30">
+                          <td className="px-3 py-2">{r.name}</td>
+                          <td className="px-3 py-2 text-muted-foreground" dir="ltr">{r.phone}</td>
+                          <td className="px-3 py-2">
+                            {r.status === 'sent' && <span className="text-green-600 font-medium">✅ أُرسلت</span>}
+                            {r.status === 'failed' && <span className="text-red-500 font-medium">❌ فشل الإرسال</span>}
+                            {r.status === 'cancelled' && <span className="text-gray-400">⚫ لُغيت (حضر الطالب)</span>}
+                            {r.status === 'pending' && <span className="text-amber-500 animate-pulse">⏳ جاري الإرسال...</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </Card>
+          )}
 
         <Card className="shadow-soft">
           {loading ? (
