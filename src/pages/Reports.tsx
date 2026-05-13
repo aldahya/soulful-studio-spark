@@ -42,7 +42,7 @@ interface StudentRow { id: string; full_name: string; stage: Stage; class_id: st
 
 export default function Reports() {
   const settings = useSchoolSettings();
-  const { isAdmin, teacherStage } = useAuth();
+  const { isAdmin, teacherStage, schoolId } = useAuth();
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -60,8 +60,8 @@ export default function Reports() {
   useEffect(() => {
     document.title = 'التقارير | نظام الضاحية';
     Promise.all([
-      supabase.from('classes').select('id, name, stage').order('name'),
-      supabase.from('students').select('id, full_name, stage, class_id, parent_phone').order('full_name').limit(2000),
+      supabase.from('classes').select('id, name, stage').eq('school_id', schoolId ?? '').order('name'),
+      supabase.from('students').select('id, full_name, stage, class_id, parent_phone').eq('school_id', schoolId ?? '').order('full_name').limit(2000),
     ]).then(([c, s]) => {
       setClasses((c.data ?? []) as ClassRow[]);
       setStudents((s.data ?? []) as StudentRow[]);
@@ -75,6 +75,7 @@ export default function Reports() {
   }, [isAdmin, teacherStage]);
 
   async function load() {
+    if (!schoolId) return;
     setLoading(true);
     const [att, perms] = await Promise.all([
       supabase.from('attendance_records')
@@ -256,7 +257,7 @@ export default function Reports() {
       const endDate = new Date(start); endDate.setMonth(endDate.getMonth() + 1);
       const end = endDate.toISOString().slice(0, 10);
 
-      let studentQuery = supabase.from('students').select('id, full_name, student_number, parent_phone, stage').order('full_name').limit(2000);
+      supabase.from('students').select('id, full_name, student_number, parent_phone, stage').eq('school_id', schoolId ?? '').order('full_name').limit(2000),
       if (!isAdmin && teacherStage) studentQuery = studentQuery.eq('stage', teacherStage);
       // فلترة لطالب محدد إن اختير
       if (monthlyStudent !== 'all') studentQuery = studentQuery.eq('id', monthlyStudent);
