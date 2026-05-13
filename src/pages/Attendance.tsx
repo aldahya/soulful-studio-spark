@@ -181,7 +181,7 @@ import { useEffect, useMemo, useState } from 'react';
           if (!error) { queued++; newSent[row.id] = true; }
         }
         setSent((s) => ({ ...s, ...newSent }));
-        if (queued > 0) { supabase.functions.invoke('smart-handler').catch(() => {}); }
+        if (queued > 0) { supabase.functions.invoke('smart-handler', { headers: { 'x-bulk': 'true' } }).catch(() => {}); }
         toast({ title: `تم إرسال ${queued} رسالة ✅`, description: `من أصل ${absentRows.length} غائب` });
       } catch (e: any) {
         toast({ title: 'خطأ', description: e.message ?? 'فشل الإرسال الجماعي', variant: 'destructive' });
