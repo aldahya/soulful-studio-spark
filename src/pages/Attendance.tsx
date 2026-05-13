@@ -138,8 +138,9 @@ import { useEffect, useMemo, useState } from 'react';
           status: 'pending',
         });
         if (error) throw error;
+        supabase.functions.invoke('smart-handler').catch(() => {});
         setSent((s) => ({ ...s, [row.id]: true }));
-        toast({ title: 'تم جدولة الرسالة ✅', description: 'ستُرسل خلال دقائق' });
+        toast({ title: 'تم إرسال الرسالة ✅', description: 'جاري الإرسال عبر واتساب' });
       } catch (e: any) {
         toast({ title: 'خطأ', description: e.message ?? 'فشل الإرسال', variant: 'destructive' });
       } finally {
@@ -180,7 +181,8 @@ import { useEffect, useMemo, useState } from 'react';
           if (!error) { queued++; newSent[row.id] = true; }
         }
         setSent((s) => ({ ...s, ...newSent }));
-        toast({ title: `تم جدولة ${queued} رسالة ✅`, description: `من أصل ${absentRows.length} غائب` });
+        if (queued > 0) { supabase.functions.invoke('smart-handler').catch(() => {}); }
+        toast({ title: `تم إرسال ${queued} رسالة ✅`, description: `من أصل ${absentRows.length} غائب` });
       } catch (e: any) {
         toast({ title: 'خطأ', description: e.message ?? 'فشل الإرسال الجماعي', variant: 'destructive' });
       } finally {
