@@ -34,52 +34,60 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
   }
 
   serve(async (req) => {
-    // CORS
     if (req.method === 'OPTIONS') {
       return new Response(null, {
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
+          'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret, x-bulk',
         },
       });
     }
 
     const secret = req.headers.get('x-cron-secret') ?? '';
     const authHeader = req.headers.get('Authorization') ?? '';
+    const isBulk = req.headers.get('x-bulk') === 'true';
     let authorized = false;
+    let isCron = false;
 
-    // 1. Cron secret check (GitHub Actions)
+    // Cron secret check
     if (CRON_SECRET && secret === CRON_SECRET) {
       authorized = true;
+      isCron = true;
     }
 
-    // 2. Authenticated Supabase user check (frontend direct call)
+    // Authenticated Supabase user check (frontend)
     if (!authorized && authHeader.startsWith('Bearer ')) {
       try {
         const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
         const userToken = authHeader.replace('Bearer ', '');
         const { data: { user }, error } = await supabaseAdmin.auth.getUser(userToken);
         if (!error && user) authorized = true;
-      } catch (_) { /* ignore */ }
+      } catch (_) {}
     }
 
     if (!authorized) {
-      return new Response('Unauthorized', { status: 401,
-        headers: { 'Access-Control-Allow-Origin': '*' } });
+      return new Response('Unauthorized', {
+        status: 401,
+        headers: { 'Access-Control-Allow-Origin': '*' }
+      });
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const now = new Date().toISOString();
+
+    // Cron: process 1 message per run (5-min gap = natural delay)
+    // Bulk button: process all pending messages at once
+    const limit = (isCron && !isBulk) ? 1 : 50;
 
     const { data: items, error } = await supabase
       .from('whatsapp_queue')
       .select('*')
       .eq('status', 'pending')
       .lte('scheduled_at', now)
-      .limit(50);
+      .order('scheduled_at', { ascending: true })
+      .limit(limit);
 
     if (error) {
-      console.error('Queue fetch error:', error);
       return new Response(JSON.stringify({ error: error.message }), {
         status: 500,
         headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
@@ -108,8 +116,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
       if (latestAtt && latestAtt.status !== 'absent') {
         await supabase.from('whatsapp_queue').update({
-          status: 'cancelled',
-          sent_at: now,
+          status: 'cancelled', sent_at: now,
         }).eq('id', item.id);
         cancelled++;
         continue;
@@ -117,20 +124,19 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
       const ok = await sendWhatsApp(item.phone, item.message);
       await supabase.from('whatsapp_queue').update({
-        status: ok ? 'sent' : 'failed',
-        sent_at: now,
+        status: ok ? 'sent' : 'failed', sent_at: now,
       }).eq('id', item.id);
+      if (ok) sent++; else failed++;
 
-      if (ok) sent++;
-      else failed++;
-
-      if (items.indexOf(item) < items.length - 1) {
-        await new Promise((r) => setTimeout(r, 2000));
+      // Delay only for bulk mode (between messages)
+      if (isBulk && items.indexOf(item) < items.length - 1) {
+        const delay = Math.floor(Math.random() * 30000) + 45000; // 45-75 ثانية
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
 
     const result = { processed: items.length, sent, cancelled, failed };
-    console.log('WhatsApp queue result:', result);
+    console.log('Result:', result);
     return new Response(JSON.stringify(result), {
       status: 200,
       headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
