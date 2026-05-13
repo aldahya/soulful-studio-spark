@@ -38,17 +38,47 @@ import { useEffect, useMemo, useState } from 'react';
     const [sending, setSending] = useState<Record<string, boolean>>({});
     const [sent, setSent] = useState<Record<string, boolean>>({});
     const [bulkSending, setBulkSending] = useState(false);
-      const [notifResults, setNotifResults] = useState<Array<{id: string; name: string; phone: string; status: string}> | null>(null);
-      const [notifPolling, setNotifPolling] = useState<ReturnType<typeof setInterval> | null>(null);
+    const [notifResults, setNotifResults] = useState<Array<{id: string; name: string; phone: string; status: string}> | null>(() => {
+      try { const s = localStorage.getItem('notif_results_' + todayISO()); return s ? JSON.parse(s) : null; } catch { return null; }
+    });
+    const [notifPolling, setNotifPolling] = useState<ReturnType<typeof setInterval> | null>(null);
+
+    // حفظ نتائج الإشعار في localStorage عند كل تغيير
+    useEffect(() => {
+        if (notifResults && notifResults.length > 0) {
+          localStorage.setItem('notif_results_' + todayISO(), JSON.stringify(notifResults));
+        }
+    }, [notifResults]);
+
+    // استئناف polling عند العودة للصفحة إذا كانت هناك رسائل معلقة
+    useEffect(() => {
+        if (!notifResults || notifResults.length === 0) return;
+        const pendingIds = notifResults.filter(r => r.status === 'pending').map(r => r.id);
+        if (pendingIds.length === 0) return;
+        const poll = setInterval(async () => {
+          const { data } = await supabase.from('whatsapp_queue').select('id, status').in('id', pendingIds);
+          if (data) {
+            setNotifResults(prev => {
+              if (!prev) return prev;
+              const updated = prev.map(r => ({ ...r, status: data.find(d => d.id === r.id)?.status ?? r.status }));
+              localStorage.setItem('notif_results_' + todayISO(), JSON.stringify(updated));
+              return updated;
+            });
+            const allDone = data.every(d => d.status !== 'pending');
+            if (allDone) { clearInterval(poll); localStorage.removeItem('notif_results_' + todayISO()); }
+          }
+        }, 8000);
+        return () => clearInterval(poll);
+    }, []);
 
     useEffect(() => { document.title = 'سجل الحضور | نظام الضاحية'; }, []);
     useEffect(() => { if (schoolId) load(); }, [date, schoolId]);
     useEffect(() => {
-      if (!isAdmin && teacherStage) setStageFilter(teacherStage);
+    if (!isAdmin && teacherStage) setStageFilter(teacherStage);
     }, [isAdmin, teacherStage]);
 
     async function load() {
-      if (!schoolId) return;
+    if (!schoolId) return;
       setLoading(true);
 
       const [att, perms] = await Promise.all([
