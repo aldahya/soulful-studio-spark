@@ -27,7 +27,7 @@ interface DupContext {
 }
 
 export default function Scan() {
-  const { user, isAdmin, teacherId, teacherStage } = useAuth();
+  const { user, isAdmin, teacherId, teacherStage, schoolId } = useAuth();
   const [code, setCode] = useState('');
   const [status, setStatus] = useState<AttendanceStatus>('present');
   const [autoMode, setAutoMode] = useState(true); // تلقائي: متأخر بعد 7:30
@@ -141,7 +141,7 @@ export default function Scan() {
         // إضافة إشعار واتساب للطابور إذا كان الطالب غائباً وعنده رقم هاتف
         if (finalStatus === 'absent' && (student as any).parent_phone) {
           const absMsg = buildNotifyMessage('absent', {
-            schoolName: settings?.school_name ?? 'مدارس الضاحية الأهلية',
+            schoolName: settings?.school_name ?? 'المدرسة',
             studentName: student.full_name,
             className: (student as any).classes?.name ?? null,
             stage: student.stage as any,
