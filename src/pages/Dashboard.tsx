@@ -33,7 +33,7 @@ import { useEffect, useMemo, useState } from 'react';
 
   export default function Dashboard() {
     const settings = useSchoolSettings();
-    const { isAdmin, user } = useAuth();
+    const { isAdmin, user, schoolId } = useAuth();
     const [stats, setStats] = useState<Stats>({ students: 0, classes: 0, teachers: 0, presentToday: 0, absentToday: 0, lateToday: 0, permissionsToday: 0 });
     const [weekTrend, setWeekTrend] = useState<DayPoint[]>([]);
     const [monthTrend, setMonthTrend] = useState<DayPoint[]>([]);
@@ -67,13 +67,14 @@ import { useEffect, useMemo, useState } from 'react';
       const weekStart = new Date();
       weekStart.setDate(weekStart.getDate() - 7);
 
+      if (!schoolId) return;
       const [s, c, t, todayAtt, weekAtt, monthAtt, perms, recentAtt, scans] = await Promise.all([
-        supabase.from('students').select('id', { count: 'exact', head: true }),
-        supabase.from('classes').select('id', { count: 'exact', head: true }),
-        supabase.from('teachers').select('id', { count: 'exact', head: true }),
-        supabase.from('attendance_records').select('status').eq('date', today),
-        supabase.from('attendance_records').select('status, date').gte('date', week7ISO).lte('date', today),
-        supabase.from('attendance_records').select('status, date').gte('date', month30ISO).lte('date', today),
+        supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+        supabase.from('classes').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+        supabase.from('teachers').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+        supabase.from('attendance_full_view').select('status').eq('school_id', schoolId).eq('date', today),
+        supabase.from('attendance_full_view').select('status, date').eq('school_id', schoolId).gte('date', week7ISO).lte('date', today),
+        supabase.from('attendance_full_view').select('status, date').eq('school_id', schoolId).gte('date', month30ISO).lte('date', today),
         supabase.from('permissions').select('id', { count: 'exact', head: true }).eq('date', today),
         supabase
           .from('attendance_records')
