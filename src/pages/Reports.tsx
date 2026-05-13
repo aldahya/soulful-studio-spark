@@ -257,7 +257,7 @@ export default function Reports() {
       const endDate = new Date(start); endDate.setMonth(endDate.getMonth() + 1);
       const end = endDate.toISOString().slice(0, 10);
 
-      supabase.from('students').select('id, full_name, student_number, parent_phone, stage').eq('school_id', schoolId ?? '').order('full_name').limit(2000),
+      let studentQuery = supabase.from('students').select('id, full_name, student_number, parent_phone, stage').eq('school_id', schoolId ?? '').order('full_name').limit(2000);
       if (!isAdmin && teacherStage) studentQuery = studentQuery.eq('stage', teacherStage);
       // فلترة لطالب محدد إن اختير
       if (monthlyStudent !== 'all') studentQuery = studentQuery.eq('id', monthlyStudent);
