@@ -132,7 +132,7 @@ import { useEffect, useMemo, useState } from 'react';
         }
         const message = buildMessage(student.full_name, schoolName);
         const { error } = await supabase.from('whatsapp_queue').insert({
-          student_id: student.id, school_id: schoolId,
+          student_id: student.id,
           phone: student.parent_phone, message,
           scheduled_at: new Date(Date.now() - 60000).toISOString(),
           status: 'pending',
@@ -172,7 +172,7 @@ import { useEffect, useMemo, useState } from 'react';
           if (!student?.parent_phone) continue;
           const message = buildMessage(student.full_name, schoolName);
           const { error } = await supabase.from('whatsapp_queue').insert({
-            student_id: student.id, school_id: schoolId,
+            student_id: student.id,
             phone: student.parent_phone, message,
             scheduled_at: new Date(Date.now() - 60000).toISOString(),
             status: 'pending',
