@@ -35,7 +35,7 @@ import { useEffect, useRef, useState } from 'react';
   const ABSENCE_ALERT_THRESHOLD = 25; // % absence triggers warning
 
   export default function Students() {
-    const { isAdmin } = useAuth();
+  const { isAdmin, schoolId } = useAuth();
     const settings = useSchoolSettings();
     const [students, setStudents] = useState<Student[]>([]);
     const [classes, setClasses] = useState<ClassRow[]>([]);
@@ -52,9 +52,10 @@ import { useEffect, useRef, useState } from 'react';
     const fileRef = useRef<HTMLInputElement>(null);
     const [importing, setImporting] = useState(false);
 
-    useEffect(() => { document.title = 'الطلاب | نظام الضاحية'; load(); }, []);
+  useEffect(() => { document.title = 'الطلاب | نظام الضاحية'; if (schoolId) load(); }, [schoolId]);
 
     async function load() {
+    if (!schoolId) return;
       setLoading(true);
       const monthStart = new Date();
       monthStart.setDate(1);
@@ -62,8 +63,8 @@ import { useEffect, useRef, useState } from 'react';
       const todayISO = new Date().toISOString().slice(0, 10);
 
       const [s, c, monthAtt] = await Promise.all([
-        supabase.from('students').select('*, classes(name)').order('full_name').limit(2000),
-        supabase.from('classes').select('id, name, stage').order('name'),
+        supabase.from('students').select('*, classes(name)').eq('school_id', schoolId).order('full_name').limit(2000),
+        supabase.from('classes').select('id, name, stage').eq('school_id', schoolId).order('name'),
         supabase.from('attendance_records').select('student_id, status').gte('date', monthStartISO).lte('date', todayISO),
       ]);
       setStudents((s.data ?? []) as Student[]);
@@ -121,7 +122,7 @@ import { useEffect, useRef, useState } from 'react';
       };
       const { error } = editing
         ? await supabase.from('students').update(payload).eq('id', editing.id)
-        : await supabase.from('students').insert(payload);
+      : await supabase.from('students').insert({ ...payload, school_id: schoolId });
       if (error) { toast.error(error.message); return; }
       toast.success(editing ? 'تم تحديث الطالب' : 'تمت إضافة الطالب');
       setOpen(false); load();
@@ -223,7 +224,7 @@ import { useEffect, useRef, useState } from 'react';
         let inserted = 0;
         for (let i = 0; i < fresh.length; i += 200) {
           const chunk = fresh.slice(i, i + 200);
-          const { error } = await supabase.from('students').insert(chunk);
+      const { error } = await supabase.from('students').insert(chunk.map((r: any) => ({ ...r, school_id: schoolId })));
           if (error) { errors.push(error.message); break; }
           inserted += chunk.length;
         }
