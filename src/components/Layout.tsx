@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { GeminiChat } from '@/components/GeminiChat';
 
 const adminNav = [
   { to: '/dashboard',       icon: LayoutDashboard, label: 'لوحة التحكم',           end: true },
@@ -129,6 +130,9 @@ export function Layout() {
           <Outlet />
         </div>
       </main>
+
+      {/* Gemini AI floating chat */}
+      <GeminiChat />
     </div>
   );
 }
