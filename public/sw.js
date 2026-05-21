@@ -1,11 +1,15 @@
-const CACHE_NAME = 'aldahia-v2'; // قمنا بتغيير الإصدار هنا
+const CACHE_NAME = 'aldahia-v10'; // رقم جديد يمسح الكاش القديم
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting(); // يجبر المتصفح على تفعيل التحديث فوراً
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim()); // يسيطر على الصفحة فوراً
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    ).then(() => clients.claim())
+  );
 });
 
 self.addEventListener('fetch', (event) => {
