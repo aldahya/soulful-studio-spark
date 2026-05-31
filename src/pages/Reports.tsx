@@ -169,7 +169,7 @@ export default function Reports() {
     }
     if (!confirm(`سيتم تسجيل جميع الطلاب${(!isAdmin && teacherStage) ? ` لمرحلة ${STAGE_LABELS[teacherStage]}` : ''} الذين لم يُمسح باركودهم اليوم كـ "غائب". متابعة؟`)) return;
 
-    let q = supabase.from('students').select('id, stage');
+    let q = supabase.from('students').select('id, stage').eq('school_id', schoolId!);
     if (!isAdmin && teacherStage) q = q.eq('stage', teacherStage);
     const { data: studs } = await q;
     if (!studs?.length) { toast.error('لا يوجد طلاب'); return; }
