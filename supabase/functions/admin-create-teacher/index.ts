@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
     }
     const newUserId = created.user.id;
 
-    // إدراج في teachers (مع all_stages والمرحلة)
+    // إدراج في teachers (مع all_stages والمرحلة وschool_id)
     const teacherPayload: Record<string, unknown> = {
       user_id:    newUserId,
       email,
@@ -56,6 +56,7 @@ Deno.serve(async (req) => {
       all_stages: all_stages === true,
     };
     if (!all_stages && stage) teacherPayload.stage = stage;
+    if (school_id) teacherPayload.school_id = school_id;
 
     const { error: tErr } = await admin.from('teachers').insert(teacherPayload);
     if (tErr) {
