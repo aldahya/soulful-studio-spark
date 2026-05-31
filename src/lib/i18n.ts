@@ -1,4 +1,5 @@
 export const STAGE_LABELS = {
+  kindergarten: 'رياض الأطفال',
   primary: 'ابتدائي',
   intermediate: 'متوسط',
   secondary: 'ثانوي',

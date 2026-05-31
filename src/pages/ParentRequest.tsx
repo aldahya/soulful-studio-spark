@@ -63,13 +63,14 @@ export default function ParentRequest() {
   const school     = SCHOOL_META[schoolSlug] ?? SCHOOL_META['dahya-boys'];
 
   // --- بيانات الطالب ---
-  const [parentPhone, setParentPhone]         = useState('');
-  const [foundStudents, setFoundStudents]     = useState<StudentOption[]>([]);
-  const [selectedStudent, setSelectedStudent] = useState<StudentOption | null>(null);
-  const [studentNumber, setStudentNumber]     = useState('');
-  const [studentName, setStudentName]         = useState('');
-  const [searchingPhone, setSearchingPhone]   = useState(false);
-  const [phoneLookupDone, setPhoneLookupDone] = useState(false);
+  const [parentPhone, setParentPhone]               = useState('');
+  const [foundStudents, setFoundStudents]           = useState<StudentOption[]>([]);
+  const [selectedStudentNums, setSelectedStudentNums] = useState<Set<string>>(new Set());
+  const [studentNumber, setStudentNumber]           = useState('');
+  const [studentName, setStudentName]               = useState('');
+  const [searchingPhone, setSearchingPhone]         = useState(false);
+  const [phoneLookupDone, setPhoneLookupDone]       = useState(false);
+  const [submittedStudents, setSubmittedStudents]   = useState<StudentOption[]>([]);
 
   // رقم الطالب المباشر (اختياري — بحث بديل)
   const [lookingUp, setLookingUp]     = useState(false);
@@ -121,8 +122,14 @@ export default function ParentRequest() {
       if (data && data.length > 0) {
         setFoundStudents(data as StudentOption[]);
         setPhoneLookupDone(true);
-        // إذا طالب واحد فقط → اختره تلقائياً
-        if (data.length === 1) applyStudent(data[0] as StudentOption);
+        if (data.length === 1) {
+          // طالب واحد → اختره تلقائياً
+          applyStudent(data[0] as StudentOption);
+        } else {
+          // أكثر من طالب → حدّد الكل تلقائياً، يمكن للمستخدم إلغاء بعضهم
+          setSelectedStudentNums(new Set((data as StudentOption[]).map((s) => s.student_number)));
+          setLookupDone(true);
+        }
       } else {
         setFoundStudents([]);
         setPhoneLookupDone(false);
@@ -145,14 +152,23 @@ export default function ParentRequest() {
   }
 
   function applyStudent(s: StudentOption) {
-    setSelectedStudent(s);
+    setSelectedStudentNums(new Set([s.student_number]));
     setStudentName(s.full_name);
     setStudentNumber(s.student_number);
     setLookupDone(true);
   }
 
+  function toggleStudentSelection(s: StudentOption) {
+    setSelectedStudentNums((prev) => {
+      const next = new Set(prev);
+      if (next.has(s.student_number)) next.delete(s.student_number);
+      else next.add(s.student_number);
+      return next;
+    });
+  }
+
   function clearStudentSelection() {
-    setSelectedStudent(null);
+    setSelectedStudentNums(new Set());
     setStudentName('');
     setStudentNumber('');
     setLookupDone(false);
@@ -194,7 +210,15 @@ export default function ParentRequest() {
   // ─── إرسال الطلب ──────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!studentName.trim()) {
+
+    const usingPhoneLookup = foundStudents.length > 0;
+    const selectedList     = foundStudents.filter((s) => selectedStudentNums.has(s.student_number));
+
+    if (usingPhoneLookup && selectedList.length === 0) {
+      toast.error('يرجى تحديد طالب واحد على الأقل');
+      return;
+    }
+    if (!usingPhoneLookup && !studentName.trim()) {
       toast.error('يرجى تحديد اسم الطالب — أدخل رقم الجوال أو رقم الطالب للبحث');
       return;
     }
@@ -212,10 +236,8 @@ export default function ParentRequest() {
     }
     setSubmitting(true);
     try {
-      const { error } = await (supabase as any).from('parent_requests').insert({
+      const commonFields = {
         school_slug:           schoolSlug,
-        student_name:          studentName.trim(),
-        student_number:        studentNumber.trim() || '—',
         parent_phone:          parentPhone.trim(),
         reason,
         requested_exit_time:   exitTime,
@@ -224,8 +246,26 @@ export default function ParentRequest() {
         request_type:          isPickup ? 'pickup' : 'permission',
         receiver_id_number:    receiverIdNumber.trim(),
         receiver_relationship: receiverRelationship,
-      });
-      if (error) { toast.error('حدث خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى'); return; }
+      };
+
+      if (usingPhoneLookup) {
+        const rows = selectedList.map((s) => ({
+          ...commonFields,
+          student_name:   s.full_name,
+          student_number: s.student_number,
+        }));
+        const { error } = await (supabase as any).from('parent_requests').insert(rows);
+        if (error) { toast.error('حدث خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى'); return; }
+        setSubmittedStudents(selectedList);
+      } else {
+        const { error } = await (supabase as any).from('parent_requests').insert({
+          ...commonFields,
+          student_name:   studentName.trim(),
+          student_number: studentNumber.trim() || '—',
+        });
+        if (error) { toast.error('حدث خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى'); return; }
+        setSubmittedStudents([{ student_number: studentNumber.trim() || '—', full_name: studentName.trim(), parent_phone: parentPhone.trim() }]);
+      }
       setSubmitted(true);
     } finally {
       setSubmitting(false);
@@ -234,7 +274,8 @@ export default function ParentRequest() {
 
   function resetForm() {
     setParentPhone(''); setFoundStudents([]); setPhoneLookupDone(false);
-    setStudentNumber(''); setStudentName(''); setSelectedStudent(null);
+    setStudentNumber(''); setStudentName(''); setSelectedStudentNums(new Set());
+    setSubmittedStudents([]);
     setLookupDone(false);
     setReceiverIdNumber(''); setReceiverRelationship('');
     setReason(isPickup ? 'استلام من ولي الأمر' : REASONS[0]);
@@ -299,9 +340,23 @@ export default function ParentRequest() {
               </p>
             </div>
             <div className="w-full bg-gray-50 rounded-xl p-4 text-sm text-right space-y-2">
-              <div className="flex justify-between"><span className="text-gray-500">الطالب/ة</span><span className="font-bold">{studentName}</span></div>
-              {studentNumber && studentNumber !== '—' && (
-                <div className="flex justify-between"><span className="text-gray-500">الرقم</span><span className="font-mono">{studentNumber}</span></div>
+              {submittedStudents.length > 1 ? (
+                <div className="space-y-1">
+                  <span className="text-gray-500">الطلاب ({submittedStudents.length})</span>
+                  {submittedStudents.map((s) => (
+                    <div key={s.student_number} className="flex justify-between pr-2">
+                      <span className="font-mono text-xs text-gray-400">#{s.student_number}</span>
+                      <span className="font-bold">{s.full_name}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-between"><span className="text-gray-500">الطالب/ة</span><span className="font-bold">{submittedStudents[0]?.full_name ?? studentName}</span></div>
+                  {(submittedStudents[0]?.student_number ?? studentNumber) && (submittedStudents[0]?.student_number ?? studentNumber) !== '—' && (
+                    <div className="flex justify-between"><span className="text-gray-500">الرقم</span><span className="font-mono">{submittedStudents[0]?.student_number ?? studentNumber}</span></div>
+                  )}
+                </>
               )}
               <div className="flex justify-between"><span className="text-gray-500">المستلم</span><span>{receiverRelationship} — {receiverIdNumber}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">السبب</span><span>{reason}</span></div>
@@ -362,25 +417,63 @@ export default function ParentRequest() {
 
               {/* قائمة الطلاب المرتبطين برقم الجوال */}
               {foundStudents.length > 1 && (
-                <div className="space-y-1">
-                  <Label className="text-sm font-semibold">اختر الطالب <span className="text-red-500">*</span></Label>
-                  <div className="space-y-2">
-                    {foundStudents.map((s) => (
-                      <button
-                        key={s.student_number}
-                        type="button"
-                        onClick={() => applyStudent(s)}
-                        className={`w-full text-right px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
-                          selectedStudent?.student_number === s.student_number
-                            ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
-                            : 'border-gray-200 bg-white hover:border-gray-300'
-                        }`}
-                      >
-                        <span className="font-bold">{s.full_name}</span>
-                        <span className="text-gray-400 text-xs mr-2">#{s.student_number}</span>
-                      </button>
-                    ))}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold">
+                      اختر الطلاب <span className="text-red-500">*</span>
+                    </Label>
+                    <button
+                      type="button"
+                      className="text-xs text-emerald-600 underline"
+                      onClick={() =>
+                        setSelectedStudentNums(
+                          selectedStudentNums.size === foundStudents.length
+                            ? new Set()
+                            : new Set(foundStudents.map((s) => s.student_number))
+                        )
+                      }
+                    >
+                      {selectedStudentNums.size === foundStudents.length ? 'إلغاء الكل' : 'تحديد الكل'}
+                    </button>
                   </div>
+                  <div className="space-y-2">
+                    {foundStudents.map((s) => {
+                      const checked = selectedStudentNums.has(s.student_number);
+                      return (
+                        <button
+                          key={s.student_number}
+                          type="button"
+                          onClick={() => toggleStudentSelection(s)}
+                          className={`w-full text-right px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all flex items-center gap-3 ${
+                            checked
+                              ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                              : 'border-gray-200 bg-white hover:border-gray-300'
+                          }`}
+                        >
+                          <span
+                            className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                              checked ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300'
+                            }`}
+                          >
+                            {checked && (
+                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12">
+                                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            )}
+                          </span>
+                          <span className="flex-1">
+                            <span className="font-bold">{s.full_name}</span>
+                            <span className="text-gray-400 text-xs mr-2">#{s.student_number}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedStudentNums.size > 1 && (
+                    <p className="text-xs text-emerald-600 font-medium">
+                      ✓ سيتم إرسال {selectedStudentNums.size} طلبات ({selectedStudentNums.size} طلاب)
+                    </p>
+                  )}
                 </div>
               )}
 
