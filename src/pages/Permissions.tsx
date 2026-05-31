@@ -36,7 +36,7 @@ interface PermRow {
 }
 
 export default function Permissions() {
-  const { user, isAdmin, isTeacher } = useAuth();
+  const { user, isAdmin, isTeacher, schoolId } = useAuth();
   const settings = useSchoolSettings();
   const canIssue = isAdmin || isTeacher;
   const [code, setCode] = useState('');
@@ -61,10 +61,12 @@ export default function Permissions() {
   useEffect(() => { load(); }, [date]);
 
   async function load() {
+    if (!schoolId) return;
     setLoading(true);
     const { data } = await supabase
       .from('permissions')
       .select('id, status, reason, notes, issued_at, used_at, returned_at, date, students(full_name, student_number, parent_phone)')
+      .eq('school_id', schoolId)
       .eq('date', date)
       .order('issued_at', { ascending: false });
     setRows((data ?? []) as any);
