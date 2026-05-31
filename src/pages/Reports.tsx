@@ -83,9 +83,11 @@ export default function Reports() {
     const [att, perms] = await Promise.all([
       supabase.from('attendance_records')
         .select('id, status, date, check_in_time, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
+        .eq('school_id', schoolId!)
         .gte('date', from).lte('date', to).order('date', { ascending: false }),
       supabase.from('permissions')
         .select('id, status, date, reason, used_at, returned_at, students(id, full_name, student_number, parent_phone, stage, class_id, classes(name))')
+        .eq('school_id', schoolId!)
         .gte('date', from).lte('date', to).order('date', { ascending: false }),
     ]);
 
