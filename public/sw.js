@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aldahia-v10'; // رقم جديد يمسح الكاش القديم
+const CACHE_NAME = 'aldahia-v11'; // رقم جديد يمسح الكاش القديم
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();

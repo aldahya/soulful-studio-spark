@@ -13,7 +13,7 @@ import {
   Clock, User, ClipboardList, Search, VolumeX, MessageCircle, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { announceStudent, isTTSSupported } from '@/lib/tts';
+import { announceStudent, isTTSSupported, getAvailableArabicVoices } from '@/lib/tts';
 
 interface ParentRequest {
   id: string;
@@ -304,6 +304,15 @@ export default function ParentRequests() {
 
   async function announceReq(req: ParentRequest) {
     if (!ttsSupported) { toast.error('المتصفح لا يدعم النداء الصوتي'); return; }
+
+    // تشخيص: إظهار الأصوات العربية المتاحة
+    const arabicVoices = getAvailableArabicVoices();
+    if (arabicVoices.length === 0) {
+      toast.warning('⚠️ لا يوجد صوت عربي — سيُستخدم الصوت الافتراضي');
+    } else {
+      toast.info(`🔊 الصوت: ${arabicVoices[0].name} (${arabicVoices[0].lang})`);
+    }
+
     setAnnouncing(req.id);
     try {
       await announceStudent({ name: req.student_name, times: 3 });

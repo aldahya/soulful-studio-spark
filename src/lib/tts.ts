@@ -1,5 +1,5 @@
 // نظام النداء الصوتي العربي — Text-to-Speech
-// مُحسَّن لـ Chrome: تحميل الأصوات مسبقاً + إصلاح خلل التوقف بعد 15 ثانية
+// إصلاح race condition: cancel() يُلغي الـ utterance الجديد في Chrome إذا استُدعي مباشرةً قبل speak()
 
 export interface AnnounceOptions {
   name: string;
@@ -9,37 +9,20 @@ export interface AnnounceOptions {
 }
 
 // ===== تحميل الأصوات مسبقاً عند بدء الصفحة =====
-// Chrome يطلب أن تكون speechSynthesis.speak() مباشرةً داخل حدث المستخدم.
-// أي await طويل قبل speak() يُفقد "user gesture context".
-// الحل: نحمّل الأصوات في الخلفية بمجرد تحميل الصفحة.
 let _cachedVoices: SpeechSynthesisVoice[] = [];
 
 function primeTTS(): void {
   if (!('speechSynthesis' in window)) return;
-
-  const load = () => {
-    _cachedVoices = window.speechSynthesis.getVoices();
-  };
-
+  const load = () => { _cachedVoices = window.speechSynthesis.getVoices(); };
   load();
   window.speechSynthesis.addEventListener('voiceschanged', load);
-  // بعض الأنظمة تحتاج تشغيل صامت أولي لفتح قناة الصوت (Chrome Autoplay Policy)
-  // نقوم بإنشاء utterance صامت لفتح القناة دون حاجة لنقر المستخدم
-  setTimeout(() => {
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) _cachedVoices = voices;
-  }, 500);
 }
-
-// ابدأ التحميل فور تحميل الملف
 if (typeof window !== 'undefined') primeTTS();
 
-// ===== اختيار الصوت العربي =====
 function selectArabicVoice(): SpeechSynthesisVoice | null {
   const voices = _cachedVoices.length
     ? _cachedVoices
     : (typeof window !== 'undefined' ? window.speechSynthesis.getVoices() : []);
-
   return (
     voices.find((v) => v.lang === 'ar-SA') ??
     voices.find((v) => v.lang === 'ar-EG') ??
@@ -49,26 +32,23 @@ function selectArabicVoice(): SpeechSynthesisVoice | null {
   );
 }
 
-// ===== نداء واحد =====
+// ===== نداء واحد — بدون cancel() مباشر قبل speak() =====
 function speak(text: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const ss = window.speechSynthesis;
     if (!ss) { reject(new Error('المتصفح لا يدعم النداء الصوتي')); return; }
 
-    // أوقف أي نداء سابق
-    ss.cancel();
-
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang  = 'ar-SA';
-    utter.rate  = 0.82;
-    utter.pitch = 1;
+    utter.lang   = 'ar-SA';
+    utter.rate   = 0.82;
+    utter.pitch  = 1;
     utter.volume = 1;
 
     const voice = selectArabicVoice();
     if (voice) utter.voice = voice;
 
-    // مهلة زمنية للحماية من تجمّد Chrome (120ms لكل حرف + 5 ثوانٍ)
-    const timeoutMs = Math.max(8000, text.length * 120 + 5000);
+    // مهلة أمان (120ms لكل حرف + 5 ثوانٍ احتياط)
+    const timeoutMs = Math.max(10000, text.length * 120 + 5000);
     let timer: ReturnType<typeof setTimeout>;
 
     // إصلاح خلل Chrome: يتوقف تلقائياً بعد ~15 ثانية → استئناف كل 5 ثوانٍ
@@ -76,25 +56,16 @@ function speak(text: string): Promise<void> {
       if (ss.paused) ss.resume();
     }, 5000);
 
-    const cleanup = () => {
-      clearTimeout(timer);
-      clearInterval(resumeInterval);
-    };
+    const cleanup = () => { clearTimeout(timer); clearInterval(resumeInterval); };
 
-    timer = setTimeout(() => {
-      cleanup();
-      ss.cancel();
-      resolve(); // نكمل حتى لو لم تنتهِ
-    }, timeoutMs);
-
-    utter.onend = () => { cleanup(); resolve(); };
+    timer = setTimeout(() => { cleanup(); ss.cancel(); resolve(); }, timeoutMs);
+    utter.onend  = () => { cleanup(); resolve(); };
     utter.onerror = (e) => {
       cleanup();
-      if (e.error === 'interrupted' || e.error === 'canceled') resolve();
-      else reject(new Error(`خطأ في النداء: ${e.error}`));
+      if (e.error === 'interrupted' || e.error === 'canceled') { resolve(); return; }
+      reject(new Error(`خطأ في النداء: ${e.error}`));
     };
 
-    // ← لا setTimeout هنا — يجب استدعاء speak() مباشرةً (user gesture context)
     ss.speak(utter);
   });
 }
@@ -113,9 +84,18 @@ export async function announceStudent(opts: AnnounceOptions): Promise<void> {
   const { name, gender = 'male', times = 3, pauseMs = 1200 } = opts;
   const text = buildText(name, gender);
 
-  // تحديث الأصوات في حال لم تكن محمّلة بعد (نتحقق بسرعة بدون await)
+  // تحديث الكاش إن كان فارغاً
   if (_cachedVoices.length === 0) {
     _cachedVoices = window.speechSynthesis.getVoices();
+  }
+
+  const ss = window.speechSynthesis;
+
+  // ← أوقف أي نداء سابق مرة واحدة فقط هنا (وليس داخل speak)
+  //   ثم أنتظر إطار رسم واحد لإفساح المجال لـ Chrome لمعالجة الإلغاء
+  if (ss.speaking || ss.pending) {
+    ss.cancel();
+    await new Promise<void>((r) => requestAnimationFrame(() => r()));
   }
 
   for (let i = 0; i < times; i++) {
