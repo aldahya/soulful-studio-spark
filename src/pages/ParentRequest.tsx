@@ -34,6 +34,14 @@ const RELATIONSHIPS = [
   'محرم آخر',
 ];
 
+// ربط slug بـ school_id الفعلي في قاعدة البيانات
+const SCHOOL_IDS: Record<string, string> = {
+  'dahya-boys':  'e3eda848-75bd-4ffb-a5e4-a0dbbb28ee9d',
+  'dahya-girls': 'f77d26a0-77a7-4608-b0e8-b754ef757d5f',
+  'ajyal':       'fd44d3bd-2b8c-4ac7-be14-9fbdc6a561a9',
+  'qanadeel':    'b7bb429d-7c37-4e86-8021-3775d86a6601',
+};
+
 const SCHOOL_META: Record<string, { name: string; subtitle: string; color: string; logo: string }> = {
   'dahya-boys':  { name: 'مدارس الضاحية الأهلية', subtitle: 'للبنين',        color: '#0d9488', logo: '/logos/dahya-boys.png'  },
   'dahya-girls': { name: 'مدارس الضاحية الأهلية', subtitle: 'للبنات',        color: '#2563eb', logo: '/logos/dahya-girls.png' },
@@ -95,11 +103,20 @@ export default function ParentRequest() {
     }
     setSearchingPhone(true);
     try {
-      const { data } = await supabase
+      const schoolId = SCHOOL_IDS[schoolSlug];
+      // نبحث بـ school_id لأن school_slug في جدول الطلاب قد يكون فارغاً
+      let query = supabase
         .from('students')
-        .select('student_number, full_name, parent_phone, school_slug')
-        .eq('parent_phone', clean)
-        .eq('school_slug', schoolSlug);
+        .select('student_number, full_name, parent_phone')
+        .eq('parent_phone', clean);
+
+      if (schoolId) {
+        query = query.eq('school_id', schoolId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) console.error('lookupByPhone error:', error);
 
       if (data && data.length > 0) {
         setFoundStudents(data as StudentOption[]);
@@ -146,12 +163,13 @@ export default function ParentRequest() {
     if (!num.trim() || num.length < 2) { setLookupDone(false); return; }
     setLookingUp(true);
     try {
-      const { data } = await supabase
+      const schoolId = SCHOOL_IDS[schoolSlug];
+      let query = supabase
         .from('students')
-        .select('student_number, full_name, parent_phone, school_slug')
-        .eq('student_number', num.trim())
-        .eq('school_slug', schoolSlug)
-        .maybeSingle();
+        .select('student_number, full_name, parent_phone')
+        .eq('student_number', num.trim());
+      if (schoolId) query = query.eq('school_id', schoolId);
+      const { data } = await query.maybeSingle();
       if (data) {
         applyStudent(data as StudentOption);
         if (data.parent_phone && !parentPhone) setParentPhone(data.parent_phone);
