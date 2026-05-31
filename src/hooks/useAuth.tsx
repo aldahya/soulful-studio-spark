@@ -1,12 +1,9 @@
-// src/hooks/useAuth.tsx — النسخة المحدّثة لدعم متعدد المدارس
-// انسخ هذا الملف وضعه في: src/hooks/useAuth.tsx
-
+// src/hooks/useAuth.tsx — دعم متعدد المدارس + all_stages للمعلمين
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import type { AppRole, Stage } from '@/lib/i18n';
 
-// ─── الثوابت للمدارس ──────────────────────────────────────────
 export const SCHOOL_COLORS: Record<string, string> = {
   teal:   '#0d9488',
   rose:   '#e11d48',
@@ -30,6 +27,7 @@ interface AuthContextValue {
   isTeacher: boolean;
   teacherId: string | null;
   teacherStage: Stage | null;
+  teacherAllStages: boolean;
   schoolId: string | null;
   school: SchoolInfo | null;
   loading: boolean;
@@ -40,14 +38,15 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [roles, setRoles] = useState<AppRole[]>([]);
-  const [teacherId, setTeacherId] = useState<string | null>(null);
-  const [teacherStage, setTeacherStage] = useState<Stage | null>(null);
-  const [schoolId, setSchoolId] = useState<string | null>(null);
-  const [school, setSchool] = useState<SchoolInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [session, setSession]               = useState<Session | null>(null);
+  const [roles, setRoles]                   = useState<AppRole[]>([]);
+  const [teacherId, setTeacherId]           = useState<string | null>(null);
+  const [teacherStage, setTeacherStage]     = useState<Stage | null>(null);
+  const [teacherAllStages, setTeacherAllStages] = useState<boolean>(false);
+  const [schoolId, setSchoolId]             = useState<string | null>(null);
+  const [school, setSchool]                 = useState<SchoolInfo | null>(null);
+  const [loading, setLoading]               = useState(true);
+  const [profileLoaded, setProfileLoaded]   = useState(false);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
@@ -79,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRoles([]);
     setTeacherId(null);
     setTeacherStage(null);
+    setTeacherAllStages(false);
     setSchoolId(null);
     setSchool(null);
   }
@@ -93,12 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle(),
       supabase
         .from('teachers')
-        .select('id, stage')
+        .select('id, stage, all_stages')
         .eq('user_id', userId)
         .maybeSingle(),
     ]);
 
-    // الأدوار
     if (rolesRes.data) {
       const roleRow = rolesRes.data as any;
       setRoles([roleRow.role as AppRole]);
@@ -118,9 +117,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSchool(null);
     }
 
-    // المعلم
     setTeacherId(teacherRes.data?.id ?? null);
     setTeacherStage((teacherRes.data?.stage as Stage) ?? null);
+    setTeacherAllStages((teacherRes.data as any)?.all_stages === true);
   }
 
   const signOut = async () => {
@@ -135,10 +134,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         user: session?.user ?? null,
         roles,
-        isAdmin:      roles.includes('admin'),
-        isTeacher:    roles.includes('teacher'),
+        isAdmin:          roles.includes('admin'),
+        isTeacher:        roles.includes('teacher'),
         teacherId,
         teacherStage,
+        teacherAllStages,
         schoolId,
         school,
         loading,

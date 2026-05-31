@@ -35,7 +35,7 @@ import { useEffect, useRef, useState } from 'react';
   const ABSENCE_ALERT_THRESHOLD = 25; // % absence triggers warning
 
   export default function Students() {
-  const { isAdmin, schoolId } = useAuth();
+  const { isAdmin, schoolId, teacherStage, teacherAllStages } = useAuth();
     const settings = useSchoolSettings();
     const [students, setStudents] = useState<Student[]>([]);
     const [classes, setClasses] = useState<ClassRow[]>([]);
@@ -51,6 +51,13 @@ import { useEffect, useRef, useState } from 'react';
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const fileRef = useRef<HTMLInputElement>(null);
     const [importing, setImporting] = useState(false);
+
+  // قيّد فلتر المرحلة للمعلمين غير المسموح لهم برؤية كل المراحل
+  useEffect(() => {
+    if (!isAdmin && !teacherAllStages && teacherStage) {
+      setStageFilter(teacherStage);
+    }
+  }, [isAdmin, teacherAllStages, teacherStage]);
 
   useEffect(() => { document.title = 'الطلاب | نظام الضاحية'; if (schoolId) load(); }, [schoolId]);
 
@@ -327,7 +334,11 @@ import { useEffect, useRef, useState } from 'react';
               <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث بالاسم أو الرقم أو الباركود..." className="pr-10" />
             </div>
-            <Select value={stageFilter} onValueChange={setStageFilter}>
+            <Select
+              value={stageFilter}
+              onValueChange={setStageFilter}
+              disabled={!isAdmin && !teacherAllStages && !!teacherStage}
+            >
               <SelectTrigger className="w-40"><SelectValue placeholder="المرحلة" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">كل المراحل</SelectItem>
