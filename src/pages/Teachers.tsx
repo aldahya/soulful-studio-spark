@@ -16,18 +16,22 @@ import { toast } from 'sonner';
 interface Teacher { id: string; user_id: string | null; full_name: string; email: string; stage: Stage; is_admin?: boolean }
 
 export default function Teachers() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, schoolId } = useAuth();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Teacher | null>(null);
   const [form, setForm] = useState({ full_name: '', email: '', stage: 'primary' as Stage, password: '', is_admin: false });
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { document.title = 'المعلمون | نظام الضاحية'; load(); }, []);
+  useEffect(() => {
+    document.title = 'المعلمون | نظام الضاحية';
+    if (schoolId) load();
+  }, [schoolId]);
 
   async function load() {
-    const { data: ts } = await supabase.from('teachers').select('*').order('full_name');
-    const { data: roles } = await supabase.from('user_roles').select('user_id, role').eq('role', 'admin');
+    if (!schoolId) return;
+    const { data: ts } = await supabase.from('teachers').select('*').eq('school_id', schoolId).order('full_name');
+    const { data: roles } = await supabase.from('user_roles').select('user_id, role').eq('role', 'admin').eq('school_id', schoolId);
     const adminSet = new Set((roles ?? []).map((r: any) => r.user_id));
     setTeachers(((ts ?? []) as Teacher[]).map((t) => ({ ...t, is_admin: t.user_id ? adminSet.has(t.user_id) : false })));
   }
