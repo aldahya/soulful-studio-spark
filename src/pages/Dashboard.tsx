@@ -75,10 +75,11 @@ import { useEffect, useMemo, useState } from 'react';
         supabase.from('attendance_full_view').select('status').eq('school_id', schoolId).eq('date', today),
         supabase.from('attendance_full_view').select('status, date').eq('school_id', schoolId).gte('date', week7ISO).lte('date', today),
         supabase.from('attendance_full_view').select('status, date').eq('school_id', schoolId).gte('date', month30ISO).lte('date', today),
-        supabase.from('permissions').select('id', { count: 'exact', head: true }).eq('date', today),
+        supabase.from('permissions').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).eq('date', today),
         supabase
           .from('attendance_records')
           .select('id, status, recorded_at, students(full_name)')
+          .eq('school_id', schoolId)
           .eq('date', today)
           .order('recorded_at', { ascending: false })
           .limit(8),
