@@ -57,17 +57,20 @@ export default function Reports() {
   const [monthlyStudent, setMonthlyStudent] = useState<string>('all');
   const [sending, setSending] = useState(false);
 
+  useEffect(() => { document.title = 'التقارير | نظام الضاحية'; }, []);
+
+  // أعِد التحميل عند توفر schoolId أو تغيّره
   useEffect(() => {
-    document.title = 'التقارير | نظام الضاحية';
+    if (!schoolId) return;
     Promise.all([
-      supabase.from('classes').select('id, name, stage').eq('school_id', schoolId ?? '').order('name'),
-      supabase.from('students').select('id, full_name, stage, class_id, parent_phone').eq('school_id', schoolId ?? '').order('full_name').limit(2000),
+      supabase.from('classes').select('id, name, stage').eq('school_id', schoolId).order('name'),
+      supabase.from('students').select('id, full_name, stage, class_id, parent_phone').eq('school_id', schoolId).order('full_name').limit(2000),
     ]).then(([c, s]) => {
       setClasses((c.data ?? []) as ClassRow[]);
       setStudents((s.data ?? []) as StudentRow[]);
     });
     load();
-  }, []);
+  }, [schoolId]);
 
   // قفل المعلم على مرحلته
   useEffect(() => {
