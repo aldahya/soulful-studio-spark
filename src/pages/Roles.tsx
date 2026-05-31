@@ -1,4 +1,4 @@
-// صفحة الأدوار والصلاحيات — إنشاء حسابات + تعيين المراحل
+// صفحة الأدوار والصلاحيات — إنشاء حسابات + تعيين المراحل + إدارة الأقسام
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
@@ -8,10 +8,42 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Shield, UserCog, Trash2, UserPlus, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import {
+  Loader2, Shield, UserCog, Trash2, UserPlus, RefreshCw,
+  Eye, EyeOff, ChevronDown, ChevronUp, RotateCcw, Save,
+  LayoutDashboard, ScanLine, FileSignature, Bell, QrCode,
+  Users, GraduationCap, ClipboardList, FileBarChart, Settings, HelpCircle,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { STAGE_LABELS, type Stage } from '@/lib/i18n';
 import { toast } from 'sonner';
+
+// ── تعريف جميع الصفحات القابلة للتفعيل/التعطيل ─────────────────────────────
+const ALL_PAGES = [
+  // الأساسية (افتراضية للمعلمين)
+  { key: 'scan',            label: 'مسح الباركود',        icon: ScanLine,       group: 'basic' },
+  { key: 'permissions',     label: 'الاستذانات',           icon: FileSignature,  group: 'basic' },
+  { key: 'parent-requests', label: 'طلبات أولياء الأمور', icon: Bell,           group: 'basic' },
+  { key: 'attendance',      label: 'سجل الحضور',          icon: ClipboardList,  group: 'basic' },
+  { key: 'reports',         label: 'التقارير',             icon: FileBarChart,   group: 'basic' },
+  { key: 'how-it-works',    label: 'كيف يعمل النظام؟',   icon: HelpCircle,     group: 'basic' },
+  // إضافية (للمدير فقط بالافتراضي)
+  { key: 'students',        label: 'الطلاب',               icon: Users,          group: 'extra' },
+  { key: 'classes',         label: 'الفصول',               icon: GraduationCap,  group: 'extra' },
+  { key: 'teachers',        label: 'المعلمون',             icon: UserCog,        group: 'extra' },
+  { key: 'school-qr',       label: 'QR Code المدرسة',     icon: QrCode,         group: 'extra' },
+  { key: 'settings',        label: 'الإعدادات',            icon: Settings,       group: 'extra' },
+  { key: 'roles',           label: 'الأدوار والصلاحيات',  icon: Shield,         group: 'extra' },
+];
+
+const DEFAULT_TEACHER_PAGES = new Set([
+  'scan', 'permissions', 'parent-requests', 'attendance', 'reports', 'how-it-works',
+]);
+
+function generatePassword(length = 10): string {
+  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789@#';
+  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
 
 interface RoleRow {
   id: string;
@@ -21,24 +53,150 @@ interface RoleRow {
   full_name: string;
   stage: Stage | null;
   all_stages: boolean;
+  allowed_pages: string[] | null;
   teacher_id: string | null;
 }
 
-function generatePassword(length = 10): string {
-  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789@#';
-  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+// ── لوحة إدارة الأقسام لمعلم محدد ──────────────────────────────────────────
+function PagesPanel({ row, onSaved }: { row: RoleRow; onSaved: (pages: string[] | null) => void }) {
+  const isCustom = row.allowed_pages !== null;
+  // إذا كانت null → ابدأ بالصفحات الافتراضية
+  const [selected, setSelected] = useState<Set<string>>(
+    new Set(isCustom ? row.allowed_pages! : Array.from(DEFAULT_TEACHER_PAGES))
+  );
+  const [saving, setSaving] = useState(false);
+
+  function toggle(key: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  async function save() {
+    if (!row.teacher_id) { toast.error('الحساب غير مرتبط بسجل معلم'); return; }
+    setSaving(true);
+    const pages = Array.from(selected);
+    const { error } = await supabase
+      .from('teachers')
+      .update({ allowed_pages: pages } as any)
+      .eq('id', row.teacher_id);
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success('تم حفظ الصلاحيات');
+    onSaved(pages);
+  }
+
+  async function resetToDefault() {
+    if (!row.teacher_id) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from('teachers')
+      .update({ allowed_pages: null } as any)
+      .eq('id', row.teacher_id);
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success('أُعيدت الصلاحيات للافتراضي');
+    setSelected(new Set(DEFAULT_TEACHER_PAGES));
+    onSaved(null);
+  }
+
+  const basic = ALL_PAGES.filter((p) => p.group === 'basic');
+  const extra = ALL_PAGES.filter((p) => p.group === 'extra');
+
+  return (
+    <div className="mt-3 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 space-y-4" dir="rtl">
+      {/* لوحة التحكم — دائماً مفعّلة */}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground pb-1 border-b">
+        <LayoutDashboard className="h-3.5 w-3.5" />
+        <span className="font-semibold">لوحة التحكم</span>
+        <Badge variant="outline" className="text-xs py-0">مفعّلة دائماً</Badge>
+      </div>
+
+      {/* الصفحات الأساسية */}
+      <div>
+        <p className="text-xs font-bold text-muted-foreground mb-2">الصفحات الأساسية</p>
+        <div className="grid grid-cols-2 gap-2">
+          {basic.map((p) => {
+            const Icon = p.icon;
+            return (
+              <label
+                key={p.key}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors text-sm ${
+                  selected.has(p.key)
+                    ? 'border-primary bg-primary/10 text-primary font-medium'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                <Checkbox
+                  checked={selected.has(p.key)}
+                  onCheckedChange={() => toggle(p.key)}
+                  className="shrink-0"
+                />
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{p.label}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* الصفحات الإضافية */}
+      <div>
+        <p className="text-xs font-bold text-amber-600 mb-2">صلاحيات إضافية (للمدير بالافتراضي)</p>
+        <div className="grid grid-cols-2 gap-2">
+          {extra.map((p) => {
+            const Icon = p.icon;
+            return (
+              <label
+                key={p.key}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors text-sm ${
+                  selected.has(p.key)
+                    ? 'border-amber-500 bg-amber-50 text-amber-800 font-medium'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                <Checkbox
+                  checked={selected.has(p.key)}
+                  onCheckedChange={() => toggle(p.key)}
+                  className="shrink-0"
+                />
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{p.label}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* أزرار الحفظ */}
+      <div className="flex gap-2 pt-1">
+        <Button size="sm" onClick={save} disabled={saving} className="flex-1">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin ml-1" /> : <Save className="h-4 w-4 ml-1" />}
+          حفظ الصلاحيات
+        </Button>
+        <Button size="sm" variant="outline" onClick={resetToDefault} disabled={saving}>
+          <RotateCcw className="h-4 w-4 ml-1" />
+          إعادة للافتراضي
+        </Button>
+      </div>
+    </div>
+  );
 }
 
+// ── الصفحة الرئيسية ──────────────────────────────────────────────────────────
 export default function Roles() {
   const { isAdmin, user, school, schoolId } = useAuth();
 
-  const [rows, setRows]           = useState<RoleRow[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [savingId, setSavingId]   = useState<string | null>(null);
-  const [creating, setCreating]   = useState(false);
-  const [showPw, setShowPw]       = useState(false);
+  const [rows, setRows]         = useState<RoleRow[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [showPw, setShowPw]     = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // نموذج إنشاء حساب جديد
   const [form, setForm] = useState({
     full_name: '',
     email: '',
@@ -48,7 +206,6 @@ export default function Roles() {
     password: generatePassword(),
   });
 
-  // منح دور لمستخدم موجود
   const [grantEmail, setGrantEmail] = useState('');
   const [grantRole, setGrantRole]   = useState<'admin' | 'teacher'>('teacher');
 
@@ -58,7 +215,7 @@ export default function Roles() {
     setLoading(true);
     const [{ data: roles }, { data: teachers }] = await Promise.all([
       supabase.from('user_roles').select('id, user_id, role, school_id'),
-      supabase.from('teachers').select('id, user_id, email, full_name, stage, all_stages'),
+      supabase.from('teachers').select('id, user_id, email, full_name, stage, all_stages, allowed_pages'),
     ]);
     const teacherByUser = new Map<string, any>();
     (teachers ?? []).forEach((t: any) => { if (t.user_id) teacherByUser.set(t.user_id, t); });
@@ -67,11 +224,12 @@ export default function Roles() {
       const t = teacherByUser.get(r.user_id);
       return {
         id: r.id, user_id: r.user_id, role: r.role,
-        email: t?.email ?? '—',
-        full_name: t?.full_name ?? '—',
-        stage: (t?.stage as Stage) ?? null,
-        all_stages: t?.all_stages === true,
-        teacher_id: t?.id ?? null,
+        email:         t?.email ?? '—',
+        full_name:     t?.full_name ?? '—',
+        stage:         (t?.stage as Stage) ?? null,
+        all_stages:    t?.all_stages === true,
+        allowed_pages: t?.allowed_pages ?? null,
+        teacher_id:    t?.id ?? null,
       };
     });
     setRows(data);
@@ -91,10 +249,7 @@ export default function Roles() {
         `${(supabase as any).supabaseUrl}/functions/v1/admin-create-teacher`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session?.access_token}`,
-          },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
           body: JSON.stringify({
             full_name: full_name.trim(),
             email: email.trim().toLowerCase(),
@@ -107,10 +262,7 @@ export default function Roles() {
         }
       );
       const result = await resp.json();
-      if (!resp.ok || result.error) {
-        toast.error(result.error ?? 'فشل إنشاء الحساب');
-        return;
-      }
+      if (!resp.ok || result.error) { toast.error(result.error ?? 'فشل إنشاء الحساب'); return; }
       toast.success(`✅ تم إنشاء حساب ${full_name.trim()} بنجاح`);
       setForm({ full_name: '', email: '', role: 'teacher', stage: 'primary', all_stages: false, password: generatePassword() });
       load();
@@ -120,10 +272,7 @@ export default function Roles() {
   }
 
   async function updateStage(row: RoleRow, stage: Stage) {
-    if (!row.teacher_id) {
-      toast.error('هذا الحساب غير مرتبط بسجل معلم');
-      return;
-    }
+    if (!row.teacher_id) { toast.error('هذا الحساب غير مرتبط بسجل معلم'); return; }
     setSavingId(row.id);
     const { error } = await supabase.from('teachers').update({ stage, all_stages: false }).eq('id', row.teacher_id);
     setSavingId(null);
@@ -146,10 +295,7 @@ export default function Roles() {
     const email = grantEmail.trim().toLowerCase();
     if (!email) return toast.error('أدخل بريداً إلكترونياً');
     const { data: t } = await supabase.from('teachers').select('user_id, full_name').eq('email', email).maybeSingle();
-    if (!t?.user_id) {
-      toast.error('لم يُعثر على مستخدم بهذا البريد');
-      return;
-    }
+    if (!t?.user_id) { toast.error('لم يُعثر على مستخدم بهذا البريد'); return; }
     const { error } = await supabase.from('user_roles').insert({ user_id: t.user_id, role: grantRole, school_id: schoolId });
     if (error) return toast.error(error.message);
     toast.success(`تم منح الدور لـ ${t.full_name}`);
@@ -178,7 +324,7 @@ export default function Roles() {
         <div>
           <h1 className="text-3xl font-extrabold">الأدوار والصلاحيات</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {school?.name} — إنشاء حسابات المعلمين وتعيين المراحل
+            {school?.name} — إنشاء حسابات المعلمين وتعيين المراحل والأقسام
           </p>
         </div>
         <Button onClick={load} variant="outline" size="sm" disabled={loading}>
@@ -267,11 +413,7 @@ export default function Roles() {
                   {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setForm({ ...form, password: generatePassword() })}
-              >
+              <Button variant="outline" size="sm" onClick={() => setForm({ ...form, password: generatePassword() })}>
                 توليد
               </Button>
             </div>
@@ -318,65 +460,98 @@ export default function Roles() {
           الحسابات الحالية
           <span className="text-sm font-normal text-muted-foreground mr-1">({rows.length})</span>
         </h2>
-        <div className="space-y-2">
+        <div className="space-y-3">
           {rows.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">لا توجد حسابات بعد.</p>}
           {rows.map((r) => (
-            <div key={r.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-muted/20 p-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold">{r.full_name}</p>
-                  <Badge variant={r.role === 'admin' ? 'default' : 'outline'}>
-                    {r.role === 'admin' ? 'مدير' : 'معلم'}
-                  </Badge>
-                  {r.all_stages && (
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
-                      جميع المراحل
+            <div key={r.id} className="rounded-xl border bg-muted/20 overflow-hidden">
+              {/* صف الحساب */}
+              <div className="flex flex-wrap items-center gap-3 p-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-bold">{r.full_name}</p>
+                    <Badge variant={r.role === 'admin' ? 'default' : 'outline'}>
+                      {r.role === 'admin' ? 'مدير' : 'معلم'}
                     </Badge>
-                  )}
+                    {r.all_stages && (
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                        جميع المراحل
+                      </Badge>
+                    )}
+                    {r.role === 'teacher' && r.allowed_pages !== null && (
+                      <Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200 text-xs">
+                        صلاحيات مخصصة ({r.allowed_pages.length} قسم)
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground" dir="ltr">{r.email}</p>
                 </div>
-                <p className="text-xs text-muted-foreground" dir="ltr">{r.email}</p>
+
+                {r.role === 'teacher' && (
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {/* تبديل all_stages */}
+                    <div className="flex items-center gap-1.5">
+                      <Checkbox
+                        id={`as-${r.id}`}
+                        checked={r.all_stages}
+                        disabled={savingId === r.id || !r.teacher_id}
+                        onCheckedChange={(v) => toggleAllStages(r, !!v)}
+                      />
+                      <label htmlFor={`as-${r.id}`} className="text-xs text-muted-foreground cursor-pointer select-none">
+                        كل المراحل
+                      </label>
+                    </div>
+
+                    {/* تعيين المرحلة */}
+                    <Select
+                      value={r.stage ?? undefined}
+                      onValueChange={(v: any) => updateStage(r, v)}
+                      disabled={savingId === r.id || !r.teacher_id || r.all_stages}
+                    >
+                      <SelectTrigger className="w-36">
+                        <SelectValue placeholder="اختر المرحلة" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.entries(STAGE_LABELS) as [Stage, string][]).map(([k, v]) => (
+                          <SelectItem key={k} value={k}>{v}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {savingId === r.id && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+
+                    {/* زر إدارة الأقسام */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                      className="text-xs gap-1"
+                    >
+                      {expandedId === r.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      إدارة الأقسام
+                    </Button>
+                  </div>
+                )}
+
+                <Button
+                  variant="outline" size="icon"
+                  onClick={() => removeRole(r)}
+                  className="text-destructive hover:bg-destructive/10 shrink-0"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
 
-              {r.role === 'teacher' && (
-                <div className="flex items-center gap-3 flex-wrap">
-                  {/* تبديل all_stages */}
-                  <div className="flex items-center gap-1.5">
-                    <Checkbox
-                      id={`as-${r.id}`}
-                      checked={r.all_stages}
-                      disabled={savingId === r.id || !r.teacher_id}
-                      onCheckedChange={(v) => toggleAllStages(r, !!v)}
-                    />
-                    <label htmlFor={`as-${r.id}`} className="text-xs text-muted-foreground cursor-pointer select-none">
-                      كل المراحل
-                    </label>
-                  </div>
-                  {/* تعيين المرحلة */}
-                  <Select
-                    value={r.stage ?? undefined}
-                    onValueChange={(v: any) => updateStage(r, v)}
-                    disabled={savingId === r.id || !r.teacher_id || r.all_stages}
-                  >
-                    <SelectTrigger className="w-40">
-                      <SelectValue placeholder="اختر المرحلة" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.entries(STAGE_LABELS) as [Stage, string][]).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {savingId === r.id && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+              {/* لوحة الأقسام — تظهر عند الضغط */}
+              {expandedId === r.id && r.role === 'teacher' && (
+                <div className="border-t px-4 pb-4">
+                  <PagesPanel
+                    row={r}
+                    onSaved={(pages) => {
+                      setRows((rs) => rs.map((x) => x.id === r.id ? { ...x, allowed_pages: pages } : x));
+                    }}
+                  />
                 </div>
               )}
-
-              <Button
-                variant="outline" size="icon"
-                onClick={() => removeRole(r)}
-                className="text-destructive hover:bg-destructive/10 shrink-0"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
             </div>
           ))}
         </div>

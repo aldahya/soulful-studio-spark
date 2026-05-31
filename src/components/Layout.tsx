@@ -11,41 +11,48 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { GeminiChat } from '@/components/GeminiChat';
 
+// جميع صفحات المدير
 const adminNav = [
-  { to: '/dashboard',       icon: LayoutDashboard, label: 'لوحة التحكم',           end: true },
-  { to: '/scan',            icon: ScanLine,        label: 'مسح الباركود'                     },
-  { to: '/permissions',     icon: FileSignature,   label: 'الاستذانات'                        },
-  { to: '/parent-requests', icon: Bell,            label: 'طلبات أولياء الأمور'               },
-  { to: '/school-qr',       icon: QrCode,          label: 'QR Code المدرسة'                  },
-  { to: '/students',        icon: Users,           label: 'الطلاب'                            },
-  { to: '/classes',         icon: GraduationCap,   label: 'الفصول'                            },
-  { to: '/teachers',        icon: UserCog,         label: 'المعلمون'                          },
-  { to: '/attendance',      icon: ClipboardList,   label: 'سجل الحضور'                        },
-  { to: '/reports',         icon: FileBarChart,    label: 'التقارير'                          },
-  { to: '/roles',           icon: Shield,          label: 'الأدوار والصلاحيات'               },
-  { to: '/settings',        icon: Settings,        label: 'الإعدادات'                         },
-  { to: '/how-it-works',    icon: HelpCircle,      label: 'كيف يعمل النظام؟'                 },
+  { to: '/dashboard',       icon: LayoutDashboard, label: 'لوحة التحكم',           key: 'dashboard',       end: true },
+  { to: '/scan',            icon: ScanLine,        label: 'مسح الباركود',           key: 'scan'                     },
+  { to: '/permissions',     icon: FileSignature,   label: 'الاستذانات',              key: 'permissions'              },
+  { to: '/parent-requests', icon: Bell,            label: 'طلبات أولياء الأمور',    key: 'parent-requests'          },
+  { to: '/school-qr',       icon: QrCode,          label: 'QR Code المدرسة',        key: 'school-qr'                },
+  { to: '/students',        icon: Users,           label: 'الطلاب',                  key: 'students'                 },
+  { to: '/classes',         icon: GraduationCap,   label: 'الفصول',                  key: 'classes'                  },
+  { to: '/teachers',        icon: UserCog,         label: 'المعلمون',                key: 'teachers'                 },
+  { to: '/attendance',      icon: ClipboardList,   label: 'سجل الحضور',             key: 'attendance'               },
+  { to: '/reports',         icon: FileBarChart,    label: 'التقارير',                key: 'reports'                  },
+  { to: '/roles',           icon: Shield,          label: 'الأدوار والصلاحيات',     key: 'roles'                    },
+  { to: '/settings',        icon: Settings,        label: 'الإعدادات',               key: 'settings'                 },
+  { to: '/how-it-works',    icon: HelpCircle,      label: 'كيف يعمل النظام؟',       key: 'how-it-works'             },
 ];
 
-const teacherNav = [
-  { to: '/dashboard',       icon: LayoutDashboard, label: 'لوحة التحكم',     end: true },
-  { to: '/scan',            icon: ScanLine,        label: 'مسح الباركود'               },
-  { to: '/permissions',     icon: FileSignature,   label: 'الاستذانات'                  },
-  { to: '/parent-requests', icon: Bell,            label: 'طلبات أولياء الأمور'         },
-  { to: '/attendance',      icon: ClipboardList,   label: 'سجل الحضور'                  },
-  { to: '/reports',         icon: FileBarChart,    label: 'التقارير'                    },
-  { to: '/how-it-works',    icon: HelpCircle,      label: 'كيف يعمل النظام؟'           },
-];
+// الصفحات الافتراضية للمعلمين (بدون صلاحيات مخصصة)
+const defaultTeacherPages = new Set([
+  'dashboard', 'scan', 'permissions', 'parent-requests', 'attendance', 'reports', 'how-it-works',
+]);
 
 export function Layout() {
-  const { isAdmin, signOut, user, school } = useAuth();
+  const { isAdmin, signOut, user, school, allowedPages } = useAuth();
   const settings = useSchoolSettings();
-  const nav = isAdmin ? adminNav : teacherNav;
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
   const schoolSlug = school?.slug ?? localStorage.getItem('school_slug') ?? 'dahya-boys';
   const schoolLogo = SCHOOL_LOGOS[schoolSlug] ?? GROUP_LOGO;
+
+  // حساب الصفحات المرئية
+  const nav = isAdmin
+    ? adminNav
+    : adminNav.filter((item) => {
+        if (allowedPages !== null) {
+          // صلاحيات مخصصة — عرض ما في القائمة فقط + لوحة التحكم دائماً
+          return item.key === 'dashboard' || allowedPages.includes(item.key);
+        }
+        // الافتراضي للمعلم
+        return defaultTeacherPages.has(item.key);
+      });
 
   const handleLogout = async () => {
     await signOut();
