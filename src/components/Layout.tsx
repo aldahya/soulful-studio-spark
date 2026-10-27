@@ -7,7 +7,9 @@ import {
   Shield, HelpCircle, Bell, QrCode,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { GeminiChat } from '@/components/GeminiChat';
 
@@ -41,6 +43,78 @@ export function Layout() {
 
   const schoolSlug = school?.slug ?? localStorage.getItem('school_slug') ?? 'dahya-boys';
   const schoolLogo = SCHOOL_LOGOS[schoolSlug] ?? GROUP_LOGO;
+  const [pendingRequestCounts, setPendingRequestCounts] = useState({ permission: 0, pickup: 0 });
+  const notifiedRequestIds = useRef(new Set<string>());
+  const pendingRequestTotal = pendingRequestCounts.permission + pendingRequestCounts.pickup;
+
+  useEffect(() => {
+    let active = true;
+    const refreshCounts = async () => {
+      const [permissionResult, pickupResult] = await Promise.all([
+        (supabase as any).from('parent_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_slug', schoolSlug)
+          .eq('status', 'pending')
+          .or('request_type.eq.permission,request_type.is.null'),
+        (supabase as any).from('parent_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_slug', schoolSlug)
+          .eq('status', 'pending')
+          .eq('request_type', 'pickup'),
+      ]);
+      if (!active || permissionResult.error || pickupResult.error) return;
+      setPendingRequestCounts({
+        permission: permissionResult.count ?? 0,
+        pickup: pickupResult.count ?? 0,
+      });
+    };
+
+    void refreshCounts();
+    const channel = (supabase as any)
+      .channel(`admin-parent-requests-${schoolSlug}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'parent_requests',
+        filter: `school_slug=eq.${schoolSlug}`,
+      }, (payload: any) => {
+        void refreshCounts();
+        if (payload.eventType !== 'INSERT' || !isAdmin) return;
+        const request = payload.new as { id: string; student_name: string; request_type: string | null; status: string };
+        if (request.status !== 'pending' || notifiedRequestIds.current.has(request.id)) return;
+        notifiedRequestIds.current.add(request.id);
+        const isPickup = request.request_type === 'pickup';
+        const title = isPickup ? 'طلب استلام سريع جديد' : 'طلب استئذان جديد';
+        toast.info(`${title}: ${request.student_name}`, {
+          duration: 8000,
+          action: { label: 'عرض الطلب', onClick: () => navigate('/parent-requests') },
+        });
+        try {
+          const context = new AudioContext();
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          oscillator.connect(gain);
+          gain.connect(context.destination);
+          oscillator.type = 'sine';
+          oscillator.frequency.value = isPickup ? 1100 : 880;
+          gain.gain.setValueAtTime(0.35, context.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.45);
+          oscillator.start();
+          oscillator.stop(context.currentTime + 0.45);
+          window.setTimeout(() => { void context.close(); }, 600);
+        } catch {
+          // Some browsers block audio until the admin interacts with the page.
+        }
+      })
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') void refreshCounts();
+      });
+    const refreshTimer = window.setInterval(() => void refreshCounts(), 30_000);
+
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+      void (supabase as any).removeChannel(channel);
+    };
+  }, [isAdmin, navigate, schoolSlug]);
 
   // حساب الصفحات المرئية
   const nav = isAdmin
@@ -107,6 +181,14 @@ export function Layout() {
             >
               <item.icon className="h-5 w-5 shrink-0" />
               <span>{item.label}</span>
+              {item.key === 'parent-requests' && pendingRequestTotal > 0 && (
+                <span
+                  className="mr-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold leading-none text-white"
+                  aria-label={`${pendingRequestTotal} طلبات معلقة`}
+                >
+                  {pendingRequestTotal > 99 ? '99+' : pendingRequestTotal}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

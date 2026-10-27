@@ -248,19 +248,6 @@ export default function ParentRequests() {
         if (payload.eventType === 'INSERT') {
           const newReq = payload.new as ParentRequest;
           setRows((prev) => [newReq, ...prev]);
-          const isPickup = newReq.request_type === 'pickup';
-          toast.info(`🔔 ${isPickup ? '⚡ استلام سريع' : 'استئذان'}: ${newReq.student_name}`, { duration: 6000 });
-          try {
-            const ctx  = new AudioContext();
-            const osc  = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain); gain.connect(ctx.destination);
-            osc.type = 'sine';
-            osc.frequency.value = isPickup ? 1100 : 880;
-            gain.gain.setValueAtTime(0.4, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-            osc.start(); osc.stop(ctx.currentTime + 0.5);
-          } catch {}
         } else if (payload.eventType === 'UPDATE') {
           setRows((prev) => prev.map((r) => r.id === payload.new.id ? payload.new as ParentRequest : r));
         }
