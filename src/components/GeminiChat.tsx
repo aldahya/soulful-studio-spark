@@ -96,26 +96,32 @@ export function GeminiChat() {
         onClick={() => setOpen((v) => !v)}
         dir="rtl"
         className={cn(
-          'fixed bottom-6 left-6 z-50 flex items-center shadow-2xl transition-all duration-300',
-          open
-            ? 'h-14 w-14 justify-center rounded-full bg-rose-500 hover:bg-rose-600'
-            : 'h-14 gap-2 rounded-full border border-teal-100 bg-white py-1 pl-1.5 pr-3 text-teal-900 hover:scale-[1.03]',
+          'fixed bottom-6 left-6 z-50 flex flex-col items-center gap-1.5 rounded-2xl bg-transparent p-0 transition-transform duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2',
+          open ? 'scale-95' : 'hover:scale-105',
         )}
         aria-label={open ? 'إغلاق مساعد المالكي' : 'فتح مساعد المالكي'}
         title={open ? 'إغلاق مساعد المالكي' : 'مساعد المالكي'}
         data-testid="floating-malki-assistant"
       >
         {open
-          ? <X className="h-6 w-6 text-white" />
+          ? (
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-rose-500 text-white shadow-xl transition-colors hover:bg-rose-600">
+              <X className="h-6 w-6" />
+            </span>
+          )
           : (
-            <>
-              <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-teal-100">
-                <span className="pointer-events-none absolute -inset-1 rounded-full border-2 border-teal-500/60 animate-ping motion-reduce:animate-none" />
-                <img src={GROUP_LOGO} alt="" className="relative z-10 h-11 w-11 rounded-full object-contain" />
-              </span>
-              <span className="whitespace-nowrap text-sm font-extrabold">مساعد المالكي</span>
-            </>
+            <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-xl ring-1 ring-teal-100 transition-shadow hover:shadow-2xl">
+              <span className="pointer-events-none absolute -inset-1 rounded-full border-2 border-teal-500/35 animate-ping motion-reduce:animate-none" />
+              <span
+                className="pointer-events-none absolute -inset-2 rounded-full border border-teal-400/25 animate-ping motion-reduce:animate-none"
+                style={{ animationDelay: '650ms' }}
+              />
+              <img src="/logos/malki-group-192.png" alt="" className="relative z-10 h-12 w-12 rounded-full object-contain" />
+            </span>
           )}
+        <span className="rounded-full bg-white/95 px-3 py-1 text-xs font-extrabold text-teal-900 shadow-md ring-1 ring-teal-100">
+          مساعد المالكي
+        </span>
       </button>
 
       {/* Chat window */}
