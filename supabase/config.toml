@@ -2,3 +2,6 @@ project_id = "vznzdkpcroccuklfjxac"
 
 [functions.admin-create-teacher]
 verify_jwt = true
+
+[functions.school-assistant]
+verify_jwt = true

@@ -2,34 +2,33 @@ import { useState, useRef, useEffect } from 'react';
 import { Bot, X, Send, Loader2, Sparkles, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { GROUP_LOGO } from '@/lib/school';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface Message {
   role: 'user' | 'assistant';
   text: string;
 }
 
-const SYSTEM_PROMPT = `أنت مساعد ذكي متخصص في نظام الاستئذان الذكي لمجموعة المالكي التعليمية.
-تساعد المعلمين والإداريين في فهم واستخدام النظام بطريقة سهلة وواضحة.
-
-معلومات عن النظام:
-- نظام حضور وغياب ذكي يعمل بالباركود وQR Code
-- يدعم مسح الباركود من خلال كاميرا الجوال
-- يتيح لأولياء الأمور إرسال طلبات الاستئذان عبر رابط QR بدون تسجيل دخول
-- يرسل إشعارات WhatsApp عند الموافقة على طلبات الاستئذان
-- يُنادى على الطالب بالعربية 3 مرات عند الموافقة (Text-to-Speech)
-- يدعم إنشاء تقارير الحضور وتصديرها
-- يدعم عدة مدارس: الضاحية للبنين، الضاحية للبنات، أجيال، قناديل
-
-أجب دائماً بالعربية، وكن موجزاً ومفيداً. إذا لم تعرف إجابة معينة عن النظام، اقترح التواصل مع المشرف.`;
-
 export function GeminiChat() {
+  const { user, schoolId } = useAuth();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scopeRef = useRef<{ userId: string | null; schoolId: string | null }>({
+    userId: user?.id ?? null,
+    schoolId,
+  });
+
+  useEffect(() => {
+    scopeRef.current = { userId: user?.id ?? null, schoolId };
+    setMessages([]);
+    setInput('');
+    setLoading(false);
+  }, [user?.id, schoolId]);
 
   useEffect(() => {
     if (open && messages.length === 0) {
@@ -39,7 +38,7 @@ export function GeminiChat() {
       }]);
     }
     if (open) setTimeout(() => inputRef.current?.focus(), 300);
-  }, [open]);
+  }, [open, messages.length]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -48,40 +47,41 @@ export function GeminiChat() {
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
+    if (!user || !schoolId) {
+      setMessages((prev) => [...prev, { role: 'assistant', text: 'تعذر تحديد فرع الحساب. أعد تسجيل الدخول ثم حاول مجددًا.' }]);
+      return;
+    }
     setInput('');
     const updated: Message[] = [...messages, { role: 'user', text }];
     setMessages(updated);
     setLoading(true);
+    const requestScope = { userId: user.id, schoolId };
+    const isCurrentScope = () =>
+      scopeRef.current.userId === requestScope.userId &&
+      scopeRef.current.schoolId === requestScope.schoolId;
 
     try {
-      const history = updated.slice(0, -1).map((m) => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.text }],
-      }));
-
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyDg2Upv5DWw3hHf1AmeOdcMpD2b_5cngLw`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-            contents: [
-              ...history,
-              { role: 'user', parts: [{ text }] },
-            ],
-            generationConfig: { maxOutputTokens: 500, temperature: 0.7 },
-          }),
-        }
-      );
-
-      const data = await res.json();
-      const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'عذراً، لم أستطع الإجابة الآن. حاول مجدداً.';
-      setMessages((prev) => [...prev, { role: 'assistant', text: reply }]);
+      const { data, error } = await supabase.functions.invoke('school-assistant', {
+        body: {
+          question: text,
+          schoolId,
+          history: updated.slice(-7, -1).map(({ role, text: messageText }) => ({ role, text: messageText })),
+        },
+      });
+      if (error) throw error;
+      if (typeof data?.answer !== 'string' || !data.answer.trim()) {
+        throw new Error('لا توجد إجابة متاحة الآن');
+      }
+      if (isCurrentScope()) setMessages((prev) => [...prev, { role: 'assistant', text: data.answer }]);
     } catch {
-      setMessages((prev) => [...prev, { role: 'assistant', text: 'خطأ في الاتصال. تحقق من الإنترنت وحاول مجدداً.' }]);
+      if (isCurrentScope()) {
+        setMessages((prev) => [...prev, {
+          role: 'assistant',
+          text: 'تعذر قراءة بيانات هذا الفرع الآن. حاول مرة أخرى بعد قليل.',
+        }]);
+      }
     } finally {
-      setLoading(false);
+      if (isCurrentScope()) setLoading(false);
     }
   };
 
