@@ -34,6 +34,8 @@ interface ParentRequest {
   created_at: string;
   request_type: 'permission' | 'pickup' | null;
   pickup_location: string | null;
+  receiver_id_number: string | null;
+  receiver_relationship: string | null;
 }
 
 const STATUS_MAP = {
@@ -43,24 +45,30 @@ const STATUS_MAP = {
 } as const;
 
 function buildWhatsAppMessage(opts: {
-  schoolName: string; studentName: string; reason: string; exitTime: string; approvedAt: string;
+  schoolName: string; studentName: string; reason: string; exitTime: string;
+  status: ParentRequest['status']; approvedAt: string | null;
 }): string {
-  const { schoolName, studentName, reason, exitTime, approvedAt } = opts;
-  const time = new Date(approvedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
-  const date = new Date(approvedAt).toLocaleDateString('ar-SA-u-ca-gregory', {
+  const { schoolName, studentName, reason, exitTime, status, approvedAt } = opts;
+  const isApproved = status === 'approved';
+  const eventDate = new Date(approvedAt ?? Date.now());
+  const time = eventDate.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+  const date = eventDate.toLocaleDateString('ar-SA-u-ca-gregory', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
   return [
     `🏫 ${schoolName}`, '━━━━━━━━━━━━━━━━━━',
     'السلام عليكم ورحمة الله وبركاته،', '',
-    '✅ *تمت الموافقة على الطلب*', '',
+    isApproved ? '✅ *تمت الموافقة على الطلب*' : '📩 *تم استلام طلبكم وهو قيد المراجعة*', '',
     `👤 الطالب/ة: *${studentName}*`,
     `📝 السبب: ${reason}`,
     `🕐 وقت الخروج المطلوب: ${exitTime}`, '',
     `📅 التاريخ: ${date}`,
-    `⏰ وقت الموافقة: ${time}`,
+    `${isApproved ? '⏰ وقت الموافقة' : '⏰ وقت الإرسال'}: ${time}`,
     '━━━━━━━━━━━━━━━━━━',
-    'يُرجى التوجه إلى بوابة المدرسة لاستلام الطالب/ة 🚗', '',
+    isApproved
+      ? 'يُرجى التوجه إلى بوابة المدرسة لاستلام الطالب/ة 🚗'
+      : 'سيتم إبلاغكم بعد مراجعة الطلب من الإدارة.',
+    '',
     'شكراً لتعاونكم 🤝',
   ].join('\n');
 }
@@ -75,14 +83,14 @@ function openWhatsApp(phone: string, message: string): boolean {
 function RequestCard({
   req, schoolName, ttsSupported,
   onApprove, onReject, onAnnounce, onWhatsApp,
-  approving, announcing,
+  approving, rejecting, announcing,
 }: {
   req: ParentRequest; schoolName: string; ttsSupported: boolean;
   onApprove:  (r: ParentRequest) => void;
   onReject:   (r: ParentRequest) => void;
   onAnnounce: (r: ParentRequest) => void;
   onWhatsApp: (r: ParentRequest) => void;
-  approving: string | null; announcing: string | null;
+  approving: string | null; rejecting: string | null; announcing: string | null;
 }) {
   return (
     <Card
@@ -128,6 +136,16 @@ function RequestCard({
             {req.parent_phone && (
               <span className="flex items-center gap-1 font-mono text-xs">
                 <MessageCircle className="h-3.5 w-3.5 text-green-600" />{req.parent_phone}
+              </span>
+            )}
+            {req.request_type !== 'pickup' && req.receiver_id_number && (
+              <span className="text-xs">
+                هوية المستلم: <strong className="font-mono">{req.receiver_id_number}</strong>
+              </span>
+            )}
+            {req.receiver_relationship && (
+              <span className="text-xs">
+                صلة القرابة: <strong>{req.receiver_relationship}</strong>
               </span>
             )}
             <span className="text-xs">
@@ -176,9 +194,12 @@ function RequestCard({
                 size="sm" variant="outline"
                 className="text-red-600 border-red-200 hover:bg-red-50 text-xs gap-1"
                 onClick={() => onReject(req)}
-                disabled={approving === req.id}
+                disabled={approving === req.id || rejecting === req.id}
               >
-                <XCircle className="h-3 w-3" />رفض
+                {rejecting === req.id
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <XCircle className="h-3 w-3" />}
+                رفض
               </Button>
             </>
           )}
@@ -227,6 +248,7 @@ export default function ParentRequests() {
   const [search, setSearch]         = useState('');
   const [announcing, setAnnouncing] = useState<string | null>(null);
   const [approving, setApproving]   = useState<string | null>(null);
+  const [rejecting, setRejecting]   = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [typeTab, setTypeTab]       = useState<'permission' | 'pickup' | 'all'>('permission');
   const ttsSupported = isTTSSupported();
@@ -234,14 +256,25 @@ export default function ParentRequests() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await (supabase as any)
-      .from('parent_requests')
-      .select('*')
-      .eq('school_slug', schoolSlug)
-      .order('created_at', { ascending: false })
-      .limit(300);
-    setRows((data ?? []) as ParentRequest[]);
-    setLoading(false);
+    try {
+      const { data, error } = await (supabase as any)
+        .from('parent_requests')
+        .select('*')
+        .eq('school_slug', schoolSlug)
+        .order('created_at', { ascending: false })
+        .limit(300);
+      if (error) {
+        toast.error('تعذر تحديث الطلبات الآن؛ أبقينا القائمة الحالية كما هي');
+        console.error('parent_requests load error:', error);
+        return;
+      }
+      setRows((data ?? []) as ParentRequest[]);
+    } catch (error) {
+      toast.error('تعذر الاتصال لتحديث الطلبات؛ أبقينا القائمة الحالية كما هي');
+      console.error('parent_requests load exception:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [schoolSlug]);
 
   useEffect(() => {
@@ -263,7 +296,16 @@ export default function ParentRequests() {
       })
       .subscribe();
     channelRef.current = ch;
-    return () => { ch.unsubscribe(); };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      ch.unsubscribe();
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [load, schoolSlug]);
 
   async function approve(req: ParentRequest) {
@@ -272,25 +314,62 @@ export default function ParentRequests() {
     try {
       const approvedAt   = new Date().toISOString();
       const approverName = user.email ?? 'موظف';
-      const { error } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from('parent_requests')
         .update({ status: 'approved', approved_by: user.id, approved_at: approvedAt, approver_name: approverName })
-        .eq('id', req.id);
+        .eq('id', req.id)
+        .eq('status', 'pending')
+        .select('*')
+        .maybeSingle();
       if (error) { toast.error(error.message); return; }
-      toast.success(`✅ تمت الموافقة على: ${req.student_name}`, { duration: 5000 });
-      await announceReq(req);
+      if (!data) {
+        await load();
+        toast.error('لم يتغير الطلب؛ تم تحديث القائمة للتحقق من حالته الحالية');
+        return;
+      }
+      const approvedRequest = data as ParentRequest;
+      setRows((prev) => prev.map((row) => row.id === req.id ? approvedRequest : row));
+      toast.success(`تم تأكيد طلب ${req.student_name} ونقله إلى «مؤكدة»`, {
+        duration: 7000,
+        action: { label: 'عرض المؤكدة', onClick: () => setStatusFilter('approved') },
+      });
+      await announceReq(approvedRequest);
     } finally { setApproving(null); }
   }
 
   async function reject(req: ParentRequest) {
-    const { error } = await (supabase as any).from('parent_requests').update({ status: 'rejected' }).eq('id', req.id);
-    if (error) { toast.error(error.message); return; }
-    toast.info('تم رفض الطلب');
+    setRejecting(req.id);
+    try {
+      const { data, error } = await (supabase as any)
+        .from('parent_requests')
+        .update({ status: 'rejected' })
+        .eq('id', req.id)
+        .eq('status', 'pending')
+        .select('*')
+        .maybeSingle();
+      if (error) { toast.error(error.message); return; }
+      if (!data) {
+        await load();
+        toast.error('لم يتغير الطلب؛ تم تحديث القائمة للتحقق من حالته الحالية');
+        return;
+      }
+      setRows((prev) => prev.map((row) => row.id === req.id ? data as ParentRequest : row));
+      toast.info('تم رفض الطلب ونقله إلى «مرفوضة»');
+    } finally {
+      setRejecting(null);
+    }
   }
 
   function sendWhatsApp(req: ParentRequest) {
     if (!req.parent_phone) { toast.error('لا يوجد رقم جوال لولي الأمر'); return; }
-    const msg  = buildWhatsAppMessage({ schoolName, studentName: req.student_name, reason: req.reason, exitTime: req.requested_exit_time, approvedAt: req.approved_at ?? new Date().toISOString() });
+    const msg  = buildWhatsAppMessage({
+      schoolName,
+      studentName: req.student_name,
+      reason: req.reason,
+      exitTime: req.requested_exit_time,
+      status: req.status,
+      approvedAt: req.approved_at,
+    });
     const sent = openWhatsApp(req.parent_phone, msg);
     if (sent) toast.success('تم فتح واتساب — يرجى إرسال الرسالة');
     else toast.error('رقم الجوال غير صالح');
@@ -310,8 +389,19 @@ export default function ParentRequests() {
     setAnnouncing(req.id);
     try {
       await announceStudent({ name: req.student_name, times: 3 });
-      await (supabase as any).from('parent_requests').update({ announced: true, announced_at: new Date().toISOString() }).eq('id', req.id);
-      toast.success('📢 تم النداء 3 مرات');
+      const { data, error } = await (supabase as any)
+        .from('parent_requests')
+        .update({ announced: true, announced_at: new Date().toISOString() })
+        .eq('id', req.id)
+        .select('*')
+        .maybeSingle();
+      if (error || !data) {
+        toast.warning('تم النداء، لكن تعذر تسجيله في الطلب');
+        if (error) console.error('parent_requests announce update error:', error);
+        return;
+      }
+      setRows((prev) => prev.map((row) => row.id === req.id ? data as ParentRequest : row));
+      toast.success('تم النداء 3 مرات وتسجيله في الطلب');
     } catch (err: any) {
       toast.error(err.message ?? 'خطأ في النداء');
     } finally { setAnnouncing(null); }
@@ -422,6 +512,7 @@ export default function ParentRequests() {
               onAnnounce={announceReq}
               onWhatsApp={sendWhatsApp}
               approving={approving}
+              rejecting={rejecting}
               announcing={announcing}
             />
           ))}

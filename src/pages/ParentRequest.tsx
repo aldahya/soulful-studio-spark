@@ -37,6 +37,13 @@ const RELATIONSHIPS = [
   'محرم آخر',
 ];
 
+function normalizeDigits(value: string): string {
+  return value.replace(/[٠-٩۰-۹]/g, (digit) => {
+    const code = digit.charCodeAt(0);
+    return String(code - (code >= 1776 ? 1776 : 1632));
+  });
+}
+
 // ربط slug بـ school_id الفعلي في قاعدة البيانات
 const SCHOOL_IDS: Record<string, string> = {
   'dahya-boys':  'e3eda848-75bd-4ffb-a5e4-a0dbbb28ee9d',
@@ -79,6 +86,7 @@ export default function ParentRequest() {
 
   // --- بيانات المستلم ---
   const [receiverRelationship, setReceiverRelationship] = useState('');
+  const [receiverIdNumber, setReceiverIdNumber] = useState('');
 
   // --- بيانات الطلب ---
   const [reason, setReason]     = useState(isPickup ? PICKUP_REASONS[0] : REASONS[0]);
@@ -199,6 +207,11 @@ export default function ParentRequest() {
       toast.error('يرجى تحديد صلة قرابة المستلم بالطالب');
       return;
     }
+    const normalizedReceiverId = normalizeDigits(receiverIdNumber).replace(/\D/g, '');
+    if (!isPickup && !/^\d{10}$/.test(normalizedReceiverId)) {
+      toast.error('يرجى إدخال رقم هوية المستلم المكوّن من 10 أرقام');
+      return;
+    }
     setSubmitting(true);
     try {
       const commonFields = {
@@ -211,6 +224,7 @@ export default function ParentRequest() {
         request_type:          isPickup ? 'pickup' : 'permission',
         ...(isPickup ? { pickup_location: pickupLocation } : {}),
         receiver_relationship: receiverRelationship,
+        ...(!isPickup ? { receiver_id_number: normalizedReceiverId } : {}),
       };
 
       if (usingPhoneLookup) {
@@ -243,6 +257,7 @@ export default function ParentRequest() {
     setSubmittedStudents([]);
     setLookupDone(false);
     setReceiverRelationship('');
+    setReceiverIdNumber('');
     setReason(isPickup ? PICKUP_REASONS[0] : REASONS[0]);
     setPickupLocation('');
     setExitTime(''); setNotes('');
@@ -477,6 +492,25 @@ export default function ParentRequest() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {!isPickup && (
+                <div className="space-y-1">
+                  <Label className="text-sm font-semibold">
+                    رقم هوية المستلم <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    value={receiverIdNumber}
+                    onChange={(e) => setReceiverIdNumber(normalizeDigits(e.target.value).replace(/\D/g, '').slice(0, 10))}
+                    placeholder="أدخل 10 أرقام"
+                    dir="ltr"
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={10}
+                    required
+                  />
+                </div>
+              )}
             </div>
 
             {/* ══════════════════════════════════════ */}
