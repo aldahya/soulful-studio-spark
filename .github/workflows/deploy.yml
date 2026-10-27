@@ -3,6 +3,16 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Set true only after the read-only SSH/path check succeeds"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
 
 jobs:
   build-and-deploy:
@@ -37,18 +47,18 @@ jobs:
           RewriteCond %{REQUEST_FILENAME} !-d
           RewriteRule . /index.html [L]' > dist/.htaccess
 
-      - name: Install SFTP password helper
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y sshpass
-
       - name: Verify Hostinger SSH fingerprint
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
         run: |
           set -euo pipefail
+          if [[ "$FTP_SERVER" != "147.93.92.65" ]]; then
+            echo "::error::Unexpected Hostinger endpoint; refusing to continue."
+            exit 1
+          fi
           mkdir -p "$HOME/.ssh"
           key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
           ssh-keyscan -T 10 -t ed25519 -p 65002 "$FTP_SERVER" 2>/dev/null > "$key_file"
           actual_fingerprint="$(ssh-keygen -lf "$key_file" -E sha256 | awk 'NR == 1 { print $2 }')"
           expected_fingerprint="SHA256:hJg0zax3LfUTlG9TMwDCFWtXxO1TPe7/T2NgMEv6OrA"
@@ -58,22 +68,67 @@ jobs:
           fi
           cat "$key_file" >> "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
-          rm -f "$key_file"
           echo "Hostinger SSH fingerprint verified."
 
-      - name: Deploy to Hostinger via SFTP
+      - name: Verify SSH key and aldaahia path (read-only)
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
-          SSHPASS: ${{ secrets.FTP_PASSWORD }}
+          HOSTINGER_SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          remote_dir="/home/${FTP_USERNAME}/domains/almalkieducational.com/public_html/aldaahia"
-          printf 'cd %s\npwd\nlcd dist\nput -r *\nput .htaccess\n' "$remote_dir" | sshpass -e sftp \
+          if [[ "$FTP_SERVER" != "147.93.92.65" || "$FTP_USERNAME" != "u706348551" ]]; then
+            echo "::error::Unexpected Hostinger account; refusing to continue."
+            exit 1
+          fi
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s\n' "$HOSTINGER_SSH_PRIVATE_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          remote_dir="/home/u706348551/domains/almalkieducational.com/public_html/aldaahia"
+          output="$(printf 'cd %s\npwd\n' "$remote_dir" | sftp -b - \
+            -i "$key_file" \
             -P 65002 \
-            -oBatchMode=no \
+            -oBatchMode=yes \
             -oStrictHostKeyChecking=yes \
             -oUserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            -oPreferredAuthentications=password \
-            -oPubkeyAuthentication=no \
+            -oPreferredAuthentications=publickey \
+            -oIdentitiesOnly=yes \
+            -oPubkeyAuthentication=yes \
+            -oPasswordAuthentication=no \
+            "${FTP_USERNAME}@${FTP_SERVER}" 2>&1)" || {
+              printf '%s\n' "$output"
+              echo "::error::Read-only SFTP authentication or path check failed; no files were uploaded."
+              exit 1
+            }
+          printf '%s\n' "$output"
+          if ! grep -Fq "$remote_dir" <<< "$output"; then
+            echo "::error::SFTP did not confirm the expected aldaahia directory; no files were uploaded."
+            exit 1
+          fi
+          echo "Read-only SSH authentication and target path verified."
+
+      - name: Deploy to Hostinger via SFTP
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy == true && github.ref == 'refs/heads/main'
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          HOSTINGER_SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s\n' "$HOSTINGER_SSH_PRIVATE_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          remote_dir="/home/u706348551/domains/almalkieducational.com/public_html/aldaahia"
+          printf 'cd %s\nlcd dist\nput -r *\nput .htaccess\n' "$remote_dir" | sftp -b - \
+            -i "$key_file" \
+            -P 65002 \
+            -oBatchMode=yes \
+            -oStrictHostKeyChecking=yes \
+            -oUserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -oPreferredAuthentications=publickey \
+            -oIdentitiesOnly=yes \
+            -oPubkeyAuthentication=yes \
+            -oPasswordAuthentication=no \
             "${FTP_USERNAME}@${FTP_SERVER}"
