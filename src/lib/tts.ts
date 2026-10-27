@@ -2,6 +2,8 @@
 // يستخدم Google Translate TTS عبر Edge Function كمصدر أساسي (يعمل بأي متصفح بدون تثبيت أصوات)
 // الاحتياط: Web Speech API إذا فشل الاتصال بالشبكة
 
+import { createSerialQueue } from '@/lib/serialQueue';
+
 export interface AnnounceOptions {
   name: string;
   gender?: 'male' | 'female';
@@ -85,8 +87,8 @@ function speakFallback(text: string): Promise<void> {
   });
 }
 
-// ===== الوظيفة الرئيسية =====
-export async function announceStudent(opts: AnnounceOptions): Promise<void> {
+// ===== تشغيل نداء واحد =====
+async function playAnnouncement(opts: AnnounceOptions): Promise<void> {
   const { name, gender = 'male', times = 3, pauseMs = 1200 } = opts;
   const text = buildText(name, gender);
 
@@ -100,6 +102,13 @@ export async function announceStudent(opts: AnnounceOptions): Promise<void> {
     }
     if (i < times - 1) await sleep(pauseMs);
   }
+}
+
+// كل استدعاء ينتظر انتهاء النداء السابق بالكامل، حتى لو ضغط المستخدم عدة أسماء بسرعة.
+const enqueueAnnouncement = createSerialQueue();
+
+export function announceStudent(opts: AnnounceOptions): Promise<void> {
+  return enqueueAnnouncement(() => playAnnouncement(opts));
 }
 
 export function isTTSSupported(): boolean {

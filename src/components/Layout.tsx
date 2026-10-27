@@ -44,13 +44,53 @@ export function Layout() {
   const schoolSlug = school?.slug ?? localStorage.getItem('school_slug') ?? 'dahya-boys';
   const schoolLogo = SCHOOL_LOGOS[schoolSlug] ?? GROUP_LOGO;
   const [pendingRequestCounts, setPendingRequestCounts] = useState({ permission: 0, pickup: 0 });
+  const knownRequestIds = useRef(new Set<string>());
   const notifiedRequestIds = useRef(new Set<string>());
+  const notificationBaselineReady = useRef(false);
+  const notificationBaselineSchool = useRef<string | null>(null);
   const pendingRequestTotal = pendingRequestCounts.permission + pendingRequestCounts.pickup;
 
   useEffect(() => {
     let active = true;
+    if (notificationBaselineSchool.current !== schoolSlug) {
+      notificationBaselineSchool.current = schoolSlug;
+      notificationBaselineReady.current = false;
+    }
+    const notifyNewRequest = (request: {
+      id: string;
+      student_name: string;
+      request_type: string | null;
+      status: string;
+    }) => {
+      if (!isAdmin || request.status !== 'pending' || notifiedRequestIds.current.has(request.id)) return;
+      knownRequestIds.current.add(request.id);
+      notifiedRequestIds.current.add(request.id);
+      const isPickup = request.request_type === 'pickup';
+      const title = isPickup ? 'طلب استلام سريع جديد' : 'طلب استئذان جديد';
+      toast.info(`${title}: ${request.student_name}`, {
+        duration: 10000,
+        action: { label: 'عرض الطلب', onClick: () => navigate('/parent-requests') },
+      });
+      try {
+        const context = new AudioContext();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.type = 'sine';
+        oscillator.frequency.value = isPickup ? 1100 : 880;
+        gain.gain.setValueAtTime(0.35, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.45);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.45);
+        window.setTimeout(() => { void context.close(); }, 600);
+      } catch {
+        // Some browsers block audio until the admin interacts with the page.
+      }
+    };
+
     const refreshCounts = async () => {
-      const [permissionResult, pickupResult] = await Promise.all([
+      const [permissionResult, pickupResult, requestsResult] = await Promise.all([
         (supabase as any).from('parent_requests')
           .select('id', { count: 'exact', head: true })
           .eq('school_slug', schoolSlug)
@@ -61,11 +101,41 @@ export function Layout() {
           .eq('school_slug', schoolSlug)
           .eq('status', 'pending')
           .eq('request_type', 'pickup'),
+        (supabase as any).from('parent_requests')
+          .select('id, student_name, request_type, status')
+          .eq('school_slug', schoolSlug)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(100),
       ]);
-      if (!active || permissionResult.error || pickupResult.error) return;
-      setPendingRequestCounts({
-        permission: permissionResult.count ?? 0,
-        pickup: pickupResult.count ?? 0,
+      if (!active) return;
+      if (!permissionResult.error && !pickupResult.error) {
+        setPendingRequestCounts({
+          permission: permissionResult.count ?? 0,
+          pickup: pickupResult.count ?? 0,
+        });
+      }
+      if (requestsResult.error) {
+        console.error('Could not refresh parent request notifications:', requestsResult.error);
+        return;
+      }
+
+      const pendingRequests = (requestsResult.data ?? []) as Array<{
+        id: string;
+        student_name: string;
+        request_type: string | null;
+        status: string;
+      }>;
+      if (!notificationBaselineReady.current) {
+        pendingRequests.forEach((request) => knownRequestIds.current.add(request.id));
+        notificationBaselineReady.current = true;
+        return;
+      }
+
+      pendingRequests.reverse().forEach((request) => {
+        if (knownRequestIds.current.has(request.id)) return;
+        knownRequestIds.current.add(request.id);
+        notifyNewRequest(request);
       });
     };
 
@@ -78,40 +148,28 @@ export function Layout() {
       }, (payload: any) => {
         void refreshCounts();
         if (payload.eventType !== 'INSERT' || !isAdmin) return;
-        const request = payload.new as { id: string; student_name: string; request_type: string | null; status: string };
-        if (request.status !== 'pending' || notifiedRequestIds.current.has(request.id)) return;
-        notifiedRequestIds.current.add(request.id);
-        const isPickup = request.request_type === 'pickup';
-        const title = isPickup ? 'طلب استلام سريع جديد' : 'طلب استئذان جديد';
-        toast.info(`${title}: ${request.student_name}`, {
-          duration: 8000,
-          action: { label: 'عرض الطلب', onClick: () => navigate('/parent-requests') },
+        notifyNewRequest(payload.new as {
+          id: string;
+          student_name: string;
+          request_type: string | null;
+          status: string;
         });
-        try {
-          const context = new AudioContext();
-          const oscillator = context.createOscillator();
-          const gain = context.createGain();
-          oscillator.connect(gain);
-          gain.connect(context.destination);
-          oscillator.type = 'sine';
-          oscillator.frequency.value = isPickup ? 1100 : 880;
-          gain.gain.setValueAtTime(0.35, context.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.45);
-          oscillator.start();
-          oscillator.stop(context.currentTime + 0.45);
-          window.setTimeout(() => { void context.close(); }, 600);
-        } catch {
-          // Some browsers block audio until the admin interacts with the page.
-        }
       })
       .subscribe((status: string) => {
         if (status === 'SUBSCRIBED') void refreshCounts();
       });
-    const refreshTimer = window.setInterval(() => void refreshCounts(), 30_000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void refreshCounts();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    const refreshTimer = window.setInterval(() => void refreshCounts(), 15_000);
 
     return () => {
       active = false;
       window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
       void (supabase as any).removeChannel(channel);
     };
   }, [isAdmin, navigate, schoolSlug]);

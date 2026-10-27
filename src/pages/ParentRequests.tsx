@@ -90,7 +90,7 @@ function RequestCard({
   onReject:   (r: ParentRequest) => void;
   onAnnounce: (r: ParentRequest) => void;
   onWhatsApp: (r: ParentRequest) => void;
-  approving: string | null; rejecting: string | null; announcing: string | null;
+  approving: boolean; rejecting: boolean; announcing: boolean;
 }) {
   return (
     <Card
@@ -174,9 +174,9 @@ function RequestCard({
                 size="sm"
                 className="bg-green-600 hover:bg-green-700 text-white text-xs gap-1"
                 onClick={() => onApprove(req)}
-                disabled={approving === req.id || announcing === req.id}
+                disabled={approving || announcing}
               >
-                {approving === req.id
+                {approving
                   ? <Loader2 className="h-3 w-3 animate-spin" />
                   : <CheckCircle2 className="h-3 w-3" />}
                 موافقة + نداء
@@ -194,9 +194,9 @@ function RequestCard({
                 size="sm" variant="outline"
                 className="text-red-600 border-red-200 hover:bg-red-50 text-xs gap-1"
                 onClick={() => onReject(req)}
-                disabled={approving === req.id || rejecting === req.id}
+                disabled={approving || rejecting}
               >
-                {rejecting === req.id
+                {rejecting
                   ? <Loader2 className="h-3 w-3 animate-spin" />
                   : <XCircle className="h-3 w-3" />}
                 رفض
@@ -218,10 +218,10 @@ function RequestCard({
                 size="sm" variant="outline"
                 className="text-blue-600 border-blue-200 hover:bg-blue-50 text-xs gap-1"
                 onClick={() => onAnnounce(req)}
-                disabled={announcing === req.id}
+                disabled={announcing}
               >
-                {announcing === req.id
-                  ? <><Loader2 className="h-3 w-3 animate-spin" />جارٍ النداء...</>
+                {announcing
+                  ? <><Loader2 className="h-3 w-3 animate-spin" />في طابور النداء...</>
                   : <><Volume2 className="h-3 w-3" />نداء مجدد</>}
               </Button>
             </>
@@ -246,9 +246,9 @@ export default function ParentRequests() {
   const [rows, setRows]             = useState<ParentRequest[]>([]);
   const [loading, setLoading]       = useState(false);
   const [search, setSearch]         = useState('');
-  const [announcing, setAnnouncing] = useState<string | null>(null);
-  const [approving, setApproving]   = useState<string | null>(null);
-  const [rejecting, setRejecting]   = useState<string | null>(null);
+  const [announcing, setAnnouncing] = useState<Set<string>>(() => new Set());
+  const [approving, setApproving]   = useState<Set<string>>(() => new Set());
+  const [rejecting, setRejecting]   = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [typeTab, setTypeTab]       = useState<'permission' | 'pickup' | 'all'>('permission');
   const ttsSupported = isTTSSupported();
@@ -310,7 +310,7 @@ export default function ParentRequests() {
 
   async function approve(req: ParentRequest) {
     if (!user) return;
-    setApproving(req.id);
+    setApproving((current) => new Set(current).add(req.id));
     try {
       const approvedAt   = new Date().toISOString();
       const approverName = user.email ?? 'موظف';
@@ -334,11 +334,17 @@ export default function ParentRequests() {
         action: { label: 'عرض المؤكدة', onClick: () => setStatusFilter('approved') },
       });
       await announceReq(approvedRequest);
-    } finally { setApproving(null); }
+    } finally {
+      setApproving((current) => {
+        const next = new Set(current);
+        next.delete(req.id);
+        return next;
+      });
+    }
   }
 
   async function reject(req: ParentRequest) {
-    setRejecting(req.id);
+    setRejecting((current) => new Set(current).add(req.id));
     try {
       const { data, error } = await (supabase as any)
         .from('parent_requests')
@@ -356,7 +362,11 @@ export default function ParentRequests() {
       setRows((prev) => prev.map((row) => row.id === req.id ? data as ParentRequest : row));
       toast.info('تم رفض الطلب ونقله إلى «مرفوضة»');
     } finally {
-      setRejecting(null);
+      setRejecting((current) => {
+        const next = new Set(current);
+        next.delete(req.id);
+        return next;
+      });
     }
   }
 
@@ -386,7 +396,7 @@ export default function ParentRequests() {
       toast.info(`🔊 الصوت: ${arabicVoices[0].name} (${arabicVoices[0].lang})`);
     }
 
-    setAnnouncing(req.id);
+    setAnnouncing((current) => new Set(current).add(req.id));
     try {
       await announceStudent({ name: req.student_name, times: 3 });
       const { data, error } = await (supabase as any)
@@ -404,7 +414,13 @@ export default function ParentRequests() {
       toast.success('تم النداء 3 مرات وتسجيله في الطلب');
     } catch (err: any) {
       toast.error(err.message ?? 'خطأ في النداء');
-    } finally { setAnnouncing(null); }
+    } finally {
+      setAnnouncing((current) => {
+        const next = new Set(current);
+        next.delete(req.id);
+        return next;
+      });
+    }
   }
 
   const filtered = rows.filter((r) => {
@@ -511,9 +527,9 @@ export default function ParentRequests() {
               onReject={reject}
               onAnnounce={announceReq}
               onWhatsApp={sendWhatsApp}
-              approving={approving}
-              rejecting={rejecting}
-              announcing={announcing}
+              approving={approving.has(req.id)}
+              rejecting={rejecting.has(req.id)}
+              announcing={announcing.has(req.id)}
             />
           ))}
         </div>

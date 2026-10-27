@@ -1,84 +1,165 @@
-// Edge function: admin creates a teacher login (any email domain) + links to teachers + user_roles
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.4';
+// Edge function: admin creates an Auth user and links it to teachers + user_roles.
+// Uses the built-in fetch API so a remote package import cannot prevent the
+// function from starting.
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type, x-supabase-api-version, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+async function responseJson(response: Response): Promise<any> {
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const serviceKey  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const anonKey     = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY')!;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
 
-    // تحقق من أن المستدعي مدير
-    const authHeader = req.headers.get('Authorization') ?? '';
-    const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
-    const { data: { user }, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !user) {
-      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-    const { data: roleRow } = await userClient.from('user_roles').select('role').eq('user_id', user.id).eq('role', 'admin').maybeSingle();
-    if (!roleRow) {
-      return new Response(JSON.stringify({ error: 'forbidden: admin only' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST') return jsonResponse({ error: 'method not allowed' }, 405);
 
-    const { email, password, full_name, stage, all_stages, is_admin, school_id } = await req.json();
-    if (!email || !password || !full_name) {
-      return new Response(JSON.stringify({ error: 'missing fields: email, password, full_name' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-    if ((password as string).length < 6) {
-      return new Response(JSON.stringify({ error: 'password must be at least 6 characters' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')?.replace(/\/+$/, '');
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const anonKey = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY');
+    if (!supabaseUrl || !serviceKey || !anonKey) {
+      console.error('admin-create-teacher is missing required Supabase runtime configuration');
+      return jsonResponse({ error: 'function configuration incomplete' }, 500);
     }
 
-    const admin = createClient(supabaseUrl, serviceKey);
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) return jsonResponse({ error: 'unauthenticated' }, 401);
 
-    // إنشاء مستخدم Auth
-    const { data: created, error: createErr } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name },
+    const callerResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: anonKey, Authorization: authHeader },
     });
-    if (createErr || !created.user) {
-      return new Response(JSON.stringify({ error: createErr?.message ?? 'create failed' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-    const newUserId = created.user.id;
+    const caller = await responseJson(callerResponse);
+    if (!callerResponse.ok || !caller?.id) return jsonResponse({ error: 'unauthenticated' }, 401);
 
-    // إدراج في teachers (مع all_stages والمرحلة وschool_id)
+    const adminHeaders = {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+    };
+    const rolesUrl = new URL(`${supabaseUrl}/rest/v1/user_roles`);
+    rolesUrl.searchParams.set('select', 'role');
+    rolesUrl.searchParams.set('user_id', `eq.${caller.id}`);
+    rolesUrl.searchParams.set('role', 'eq.admin');
+    rolesUrl.searchParams.set('limit', '1');
+    const roleResponse = await fetch(rolesUrl, { headers: adminHeaders });
+    const callerRoles = await responseJson(roleResponse);
+    if (!roleResponse.ok) {
+      console.error('admin role verification failed with status', roleResponse.status);
+      return jsonResponse({ error: 'could not verify administrator permissions' }, 500);
+    }
+    if (!Array.isArray(callerRoles) || callerRoles.length === 0) {
+      return jsonResponse({ error: 'forbidden: admin only' }, 403);
+    }
+
+    let input: any;
+    try {
+      input = await req.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON request body' }, 400);
+    }
+
+    const { email, password, full_name, stage, all_stages, is_admin, school_id } = input ?? {};
+    if (
+      typeof email !== 'string' || !email.trim() ||
+      typeof password !== 'string' || !password ||
+      typeof full_name !== 'string' || !full_name.trim()
+    ) {
+      return jsonResponse({ error: 'missing fields: email, password, full_name' }, 400);
+    }
+    if (password.length < 6) return jsonResponse({ error: 'password must be at least 6 characters' }, 400);
+
+    const createUserResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: full_name.trim() },
+      }),
+    });
+    const createUserResult = await responseJson(createUserResponse);
+    const newUserId = createUserResult?.id;
+    if (!createUserResponse.ok || !newUserId) {
+      return jsonResponse(
+        { error: createUserResult?.msg ?? createUserResult?.message ?? 'could not create account' },
+        createUserResponse.status || 400,
+      );
+    }
+
     const teacherPayload: Record<string, unknown> = {
-      user_id:    newUserId,
-      email,
-      full_name,
+      user_id: newUserId,
+      email: email.trim().toLowerCase(),
+      full_name: full_name.trim(),
       all_stages: all_stages === true,
     };
-    if (!all_stages && stage) teacherPayload.stage = stage;
+    if (all_stages !== true && stage) teacherPayload.stage = stage;
     if (school_id) teacherPayload.school_id = school_id;
 
-    const { error: tErr } = await admin.from('teachers').insert(teacherPayload);
-    if (tErr) {
-      await admin.auth.admin.deleteUser(newUserId).catch(() => {});
-      return new Response(JSON.stringify({ error: tErr.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const teacherResponse = await fetch(`${supabaseUrl}/rest/v1/teachers`, {
+      method: 'POST',
+      headers: { ...adminHeaders, Prefer: 'return=minimal' },
+      body: JSON.stringify(teacherPayload),
+    });
+    const teacherResult = await responseJson(teacherResponse);
+    if (!teacherResponse.ok) {
+      await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(newUserId)}`, {
+        method: 'DELETE',
+        headers: adminHeaders,
+      }).catch(() => undefined);
+      return jsonResponse(
+        { error: teacherResult?.message ?? 'could not create teacher record' },
+        400,
+      );
     }
 
-    // إدراج في user_roles مع school_id
     const rolePayload: Record<string, unknown> = {
       user_id: newUserId,
-      role:    is_admin ? 'admin' : 'teacher',
+      role: is_admin === true ? 'admin' : 'teacher',
     };
     if (school_id) rolePayload.school_id = school_id;
-    await admin.from('user_roles').insert(rolePayload);
 
-    return new Response(JSON.stringify({ ok: true, user_id: newUserId }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    const roleInsertResponse = await fetch(`${supabaseUrl}/rest/v1/user_roles`, {
+      method: 'POST',
+      headers: { ...adminHeaders, Prefer: 'return=minimal' },
+      body: JSON.stringify(rolePayload),
     });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: (e as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    const roleInsertResult = await responseJson(roleInsertResponse);
+    if (!roleInsertResponse.ok) {
+      await Promise.all([
+        fetch(`${supabaseUrl}/rest/v1/teachers?user_id=eq.${encodeURIComponent(newUserId)}`, {
+          method: 'DELETE',
+          headers: adminHeaders,
+        }).catch(() => undefined),
+        fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(newUserId)}`, {
+          method: 'DELETE',
+          headers: adminHeaders,
+        }).catch(() => undefined),
+      ]);
+      return jsonResponse(
+        { error: roleInsertResult?.message ?? 'could not assign account role' },
+        400,
+      );
+    }
+
+    return jsonResponse({ ok: true, user_id: newUserId });
+  } catch (error) {
+    console.error('admin-create-teacher failed:', error instanceof Error ? error.message : 'unknown error');
+    return jsonResponse({ error: 'account creation failed unexpectedly' }, 500);
   }
 });

@@ -1,6 +1,6 @@
 {
-  "name": "مجموعة المالكي التعليمية",
-  "short_name": "المالكي",
+  "name": "مجموعة المالكي",
+  "short_name": "مجموعة المالكي",
   "description": "نظام الحضور الذكي لمجموعة المالكي التعليمية",
   "start_url": "./index.html",
   "display": "standalone",
