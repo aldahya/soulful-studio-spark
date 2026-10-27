@@ -13,7 +13,7 @@ import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useSchoolSettings } from '@/lib/school';
 import { useAuth } from '@/hooks/useAuth';
-import { openReportPdf, type ReportRow } from '@/lib/reportPdf';
+import { openReportPdf, openMonthlySummaryPdf, type ReportRow, type MonthlyStudentSummary } from '@/lib/reportPdf';
 import { nowTimeLabel } from '@/lib/feedback';
 import { buildNotifyMessage, statusToKind, makeSentKey, wasSent, markSent, type NotifyKind } from '@/lib/whatsappTemplates';
 
@@ -56,6 +56,7 @@ export default function Reports() {
   const [monthlyMonth, setMonthlyMonth] = useState(todayISO().slice(0, 7));
   const [monthlyStudent, setMonthlyStudent] = useState<string>('all');
   const [sending, setSending] = useState(false);
+  const [generatingMonthly, setGeneratingMonthly] = useState(false);
 
   useEffect(() => { document.title = 'التقارير | نظام الضاحية'; }, []);
 
@@ -255,6 +256,101 @@ export default function Reports() {
     });
   }
 
+  async function generateMonthlyForAllStudents() {
+    if (monthlyStudent !== 'all') { toast.error('اختر «جميع الطلاب» لإصدار التقرير الشامل'); return; }
+    if (!schoolId) { toast.error('تعذر تحديد المدرسة الحالية'); return; }
+    if (!/^\d{4}-\d{2}$/.test(monthlyMonth)) { toast.error('اختر الشهر أولاً'); return; }
+
+    const reportWindow = window.open('', '_blank');
+    if (!reportWindow) { toast.error('اسمح بالنوافذ المنبثقة لإصدار التقرير'); return; }
+    reportWindow.document.write('<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><title>إعداد التقرير</title><body style="font-family:Tahoma,Arial;padding:32px">جاري إعداد التقرير الشهري لجميع الطلاب...</body></html>');
+    reportWindow.document.close();
+    setGeneratingMonthly(true);
+
+    try {
+      const [year, month] = monthlyMonth.split('-').map(Number);
+      const start = `${monthlyMonth}-01`;
+      const end = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+      const pageSize = 1000;
+      const reportStudents: any[] = [];
+      const attendanceRows: any[] = [];
+      const permissionRows: any[] = [];
+
+      for (let offset = 0; ; offset += pageSize) {
+        let query = supabase.from('students')
+          .select('id, full_name, student_number, stage, class_id, classes(name)')
+          .eq('school_id', schoolId)
+          .order('full_name', { ascending: true }).order('id', { ascending: true });
+        if (!isAdmin && teacherStage) query = query.eq('stage', teacherStage);
+        const { data, error } = await query.range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        const page = data ?? [];
+        reportStudents.push(...page);
+        if (page.length < pageSize) break;
+      }
+      if (!reportStudents.length) throw new Error('لا يوجد طلاب في المدرسة لإصدار التقرير');
+
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase.from('attendance_records')
+          .select('id, student_id, status, date')
+          .eq('school_id', schoolId).gte('date', start).lt('date', end)
+          .order('date', { ascending: true }).order('id', { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        const page = data ?? [];
+        attendanceRows.push(...page);
+        if (page.length < pageSize) break;
+      }
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase.from('permissions')
+          .select('id, student_id, date')
+          .eq('school_id', schoolId).gte('date', start).lt('date', end)
+          .order('date', { ascending: true }).order('id', { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        const page = data ?? [];
+        permissionRows.push(...page);
+        if (page.length < pageSize) break;
+      }
+
+      const stats = new Map<string, { present: number; late: number; absent: number; permission: number }>();
+      reportStudents.forEach((student) => stats.set(student.id, { present: 0, late: 0, absent: 0, permission: 0 }));
+      attendanceRows.forEach((record) => {
+        const studentStats = stats.get(record.student_id);
+        if (!studentStats) return;
+        if (record.status === 'present' || record.status === 'late' || record.status === 'absent') {
+          studentStats[record.status]++;
+        } else if (record.status === 'permission') {
+          studentStats.permission++;
+        }
+      });
+      permissionRows.forEach((record) => {
+        const studentStats = stats.get(record.student_id);
+        if (studentStats) studentStats.permission++;
+      });
+
+      const summaries: MonthlyStudentSummary[] = reportStudents.map((student) => ({
+        student_name: student.full_name,
+        student_number: String(student.student_number ?? ''),
+        stage: student.stage as Stage,
+        class_name: student.classes?.name ?? null,
+        ...(stats.get(student.id) ?? { present: 0, late: 0, absent: 0, permission: 0 }),
+      }));
+      const monthLabel = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { month: 'long', year: 'numeric' })
+        .format(new Date(Date.UTC(year, month - 1, 15, 12)));
+      openMonthlySummaryPdf(reportWindow, summaries, {
+        school_name: settings?.school_name ?? 'مدارس الضاحية',
+        subtitle: settings?.subtitle, address: settings?.address, phone: settings?.phone,
+      }, monthLabel);
+      toast.success(`تم تجهيز التقرير الشهري لـ ${summaries.length} طالباً`);
+    } catch (error) {
+      reportWindow.close();
+      toast.error(`تعذر إنشاء التقرير الشهري: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
+    } finally {
+      setGeneratingMonthly(false);
+    }
+  }
+
   async function sendMonthlyReports() {
     setSending(true);
     try {
@@ -406,7 +502,7 @@ export default function Reports() {
       <Card className="p-5 shadow-soft border-accent/30 bg-accent/5">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><Send className="h-5 w-5 text-accent" /> التقارير الشهرية</h2>
         <p className="text-xs text-muted-foreground mb-4">
-          أصدر تقريراً شهرياً لطالب محدد كـ PDF، أو افتح روابط واتساب جاهزة لأولياء الأمور.
+          أصدر تقرير PDF لطالب محدد أو ملخصاً شهرياً لجميع الطلاب، وجهّز رسائل واتساب لأولياء الأمور.
         </p>
         <div className="flex flex-wrap items-end gap-4">
           <div className="space-y-1">
@@ -418,13 +514,17 @@ export default function Reports() {
             <Select value={monthlyStudent} onValueChange={setMonthlyStudent}>
               <SelectTrigger className="w-60"><SelectValue placeholder="جميع الطلاب" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">جميع الطلاب (واتساب)</SelectItem>
+                <SelectItem value="all">جميع الطلاب</SelectItem>
                 {visibleStudents.slice(0, 500).map((s) => <SelectItem key={s.id} value={s.id}>{s.full_name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
           <Button onClick={generateMonthlyForStudent} disabled={monthlyStudent === 'all'} className="gap-2 bg-gradient-primary">
             <UserIcon className="h-4 w-4" /> تقرير شهري للطالب (PDF)
+          </Button>
+          <Button onClick={generateMonthlyForAllStudents} disabled={monthlyStudent !== 'all' || generatingMonthly} variant="outline" className="gap-2">
+            {generatingMonthly ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+            تقرير شهري لجميع الطلاب (PDF)
           </Button>
           <Button onClick={sendMonthlyReports} disabled={sending} className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2">
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

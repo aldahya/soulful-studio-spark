@@ -130,3 +130,82 @@ export function openReportPdf(rows: ReportRow[], school: ReportSchool, meta: Rep
   w.document.write(html);
   w.document.close();
 }
+
+export interface MonthlyStudentSummary {
+  student_name: string;
+  student_number: string;
+  stage: Stage;
+  class_name: string | null;
+  present: number;
+  late: number;
+  absent: number;
+  permission: number;
+}
+
+export function openMonthlySummaryPdf(
+  target: Window,
+  rows: MonthlyStudentSummary[],
+  school: ReportSchool,
+  monthLabel: string,
+) {
+  const escapeHtml = (value: unknown) => String(value ?? '—').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[char] ?? char));
+  const totals = rows.reduce((sum, row) => ({
+    present: sum.present + row.present,
+    late: sum.late + row.late,
+    absent: sum.absent + row.absent,
+    permission: sum.permission + row.permission,
+  }), { present: 0, late: 0, absent: 0, permission: 0 });
+  const attendanceDays = totals.present + totals.late + totals.absent;
+  const overallRate = attendanceDays ? Math.round((totals.present / attendanceDays) * 100) : 0;
+  const tableRows = rows.map((row, index) => {
+    const days = row.present + row.late + row.absent;
+    const rate = days ? Math.round((row.present / days) * 100) : 0;
+    return `<tr>
+      <td>${index + 1}</td><td>${escapeHtml(row.student_name)}</td><td class="mono">${escapeHtml(row.student_number)}</td>
+      <td>${escapeHtml(STAGE_LABELS[row.stage] ?? '—')}</td><td>${escapeHtml(row.class_name)}</td>
+      <td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.permission}</td><td>${rate}%</td>
+    </tr>`;
+  }).join('');
+  const schoolName = escapeHtml(school.school_name);
+  const title = `التقرير الشهري لجميع الطلاب — ${monthLabel}`;
+  const html = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+    <title>${escapeHtml(title)}</title><style>
+    @page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}
+    body{font-family:Cairo,Tahoma,Arial,sans-serif;margin:0;color:#0f172a;background:#fff}
+    .toolbar{position:fixed;top:8px;left:8px;display:flex;gap:8px}
+    .toolbar button{background:#0f766e;color:#fff;border:0;padding:8px 14px;border-radius:8px;cursor:pointer;font-family:inherit}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #80c6bb;padding-bottom:10px;margin-bottom:14px}
+    h1{margin:0;font-size:20px;color:#0f766e}.school p,.doc p{margin:3px 0;font-size:11px;color:#475569}
+    .doc{text-align:left}.doc h2{margin:0;font-size:16px}.summary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:10px 0 14px}
+    .stat{border:1px solid #e2e8f0;border-radius:10px;padding:8px;text-align:center;background:#f8fafc}
+    .stat .v{font-size:18px;font-weight:800;color:#0f766e}.stat .l{font-size:11px;color:#64748b;margin-top:2px}
+    table{width:100%;border-collapse:collapse;font-size:11px}thead th{background:#80c6bb;color:#fff;padding:7px;text-align:right;border:1px solid #5fb0a4}
+    tbody td{border:1px solid #e2e8f0;padding:6px}tbody tr:nth-child(even) td{background:#f8fafc}
+    .mono{font-family:ui-monospace,Menlo,Consolas,monospace;direction:ltr}.footer{margin-top:12px;font-size:10px;color:#64748b;display:flex;justify-content:space-between}
+    @media print{.noprint{display:none}}
+    </style></head><body>
+    <div class="toolbar noprint"><button onclick="window.print()">طباعة / حفظ PDF</button><button onclick="window.close()" style="background:#64748b">إغلاق</button></div>
+    <div class="header"><div class="school"><h1>${schoolName}</h1>
+      ${school.subtitle ? `<p>${escapeHtml(school.subtitle)}</p>` : ''}
+      ${school.address ? `<p>${escapeHtml(school.address)}</p>` : ''}
+      ${school.phone ? `<p dir="ltr">${escapeHtml(school.phone)}</p>` : ''}
+    </div><div class="doc"><h2>${escapeHtml(title)}</h2><p>الفترة: ${escapeHtml(monthLabel)}</p><p>تاريخ الإصدار: ${formatDate(new Date())}</p></div></div>
+    <div class="summary">
+      <div class="stat"><div class="v">${rows.length}</div><div class="l">عدد الطلاب</div></div>
+      <div class="stat"><div class="v">${totals.present}</div><div class="l">حاضر</div></div>
+      <div class="stat"><div class="v">${totals.late}</div><div class="l">متأخر</div></div>
+      <div class="stat"><div class="v">${totals.absent}</div><div class="l">غائب</div></div>
+      <div class="stat"><div class="v">${totals.permission}</div><div class="l">استئذان</div></div>
+    </div>
+    <p style="font-size:12px;color:#0f766e;font-weight:700">نسبة الحضور العامة: ${overallRate}%</p>
+    <table><thead><tr><th>م</th><th>الطالب</th><th>رقم الطالب</th><th>المرحلة</th><th>الفصل</th><th>حضور</th><th>تأخر</th><th>غياب</th><th>استئذان</th><th>نسبة الحضور</th></tr></thead>
+    <tbody>${tableRows || '<tr><td colspan="10" style="text-align:center;padding:24px;color:#64748b">لا توجد بيانات</td></tr>'}</tbody></table>
+    <div class="footer"><span>${schoolName}</span><span>تقرير إداري داخلي</span></div>
+    </body></html>`;
+  target.document.open();
+  target.document.write(html);
+  target.document.close();
+}
+

@@ -161,7 +161,16 @@ function RequestCard({
                 {approving === req.id
                   ? <Loader2 className="h-3 w-3 animate-spin" />
                   : <CheckCircle2 className="h-3 w-3" />}
-                موافقة + واتساب + نداء
+                موافقة + نداء
+              </Button>
+              <Button
+                size="sm" variant="outline"
+                className="text-green-600 border-green-200 hover:bg-green-50 text-xs gap-1"
+                onClick={() => onWhatsApp(req)}
+                disabled={!req.parent_phone}
+                title={!req.parent_phone ? 'لا يوجد رقم جوال لولي الأمر' : 'إرسال رسالة واتساب'}
+              >
+                <MessageCircle className="h-3 w-3" />إرسال واتساب
               </Button>
               <Button
                 size="sm" variant="outline"
@@ -268,13 +277,7 @@ export default function ParentRequests() {
         .update({ status: 'approved', approved_by: user.id, approved_at: approvedAt, approver_name: approverName })
         .eq('id', req.id);
       if (error) { toast.error(error.message); return; }
-      if (req.parent_phone) {
-        const msg  = buildWhatsAppMessage({ schoolName, studentName: req.student_name, reason: req.reason, exitTime: req.requested_exit_time, approvedAt });
-        const sent = openWhatsApp(req.parent_phone, msg);
-        toast.success(sent ? '✅ تمت الموافقة — فُتح واتساب' : '✅ تمت الموافقة', { duration: 5000 });
-      } else {
-        toast.success(`✅ تمت الموافقة على: ${req.student_name}`);
-      }
+      toast.success(`✅ تمت الموافقة على: ${req.student_name}`, { duration: 5000 });
       await announceReq(req);
     } finally { setApproving(null); }
   }

@@ -213,28 +213,37 @@ export default function Roles() {
 
   async function load() {
     setLoading(true);
-    const [{ data: roles }, { data: teachers }] = await Promise.all([
-      supabase.from('user_roles').select('id, user_id, role, school_id'),
-      supabase.from('teachers').select('id, user_id, email, full_name, stage, all_stages, allowed_pages'),
-    ]);
-    const teacherByUser = new Map<string, any>();
-    (teachers ?? []).forEach((t: any) => { if (t.user_id) teacherByUser.set(t.user_id, t); });
-
-    const data: RoleRow[] = (roles ?? []).map((r: any) => {
-      const t = teacherByUser.get(r.user_id);
-      return {
-        id: r.id, user_id: r.user_id, role: r.role,
-        email:         t?.email ?? '—',
-        full_name:     t?.full_name ?? '—',
-        stage:         (t?.stage as Stage) ?? null,
-        all_stages:    t?.all_stages === true,
-        allowed_pages: t?.allowed_pages ?? null,
-        teacher_id:    t?.id ?? null,
-      };
-    });
-    setRows(data);
-    setLoading(false);
+    try {
+      const [rolesResult, teachersResult] = await Promise.all([
+        supabase.from('user_roles').select('id, user_id, role, school_id'),
+        supabase.from('teachers').select('id, user_id, email, full_name, stage, all_stages, allowed_pages'),
+      ]);
+      if (rolesResult.error || teachersResult.error) {
+        toast.error(`تعذر تحميل الحسابات: ${rolesResult.error?.message ?? teachersResult.error?.message}`);
+        return;
+      }
+      const teacherByUser = new Map<string, any>();
+      (teachersResult.data ?? []).forEach((t: any) => { if (t.user_id) teacherByUser.set(t.user_id, t); });
+      const data: RoleRow[] = (rolesResult.data ?? []).map((r: any) => {
+        const t = teacherByUser.get(r.user_id);
+        return {
+          id: r.id, user_id: r.user_id, role: r.role,
+          email: t?.email ?? '—',
+          full_name: t?.full_name ?? '—',
+          stage: (t?.stage as Stage) ?? null,
+          all_stages: t?.all_stages === true,
+          allowed_pages: t?.allowed_pages ?? null,
+          teacher_id: t?.id ?? null,
+        };
+      });
+      setRows(data);
+    } catch (error) {
+      toast.error(`تعذر تحميل الحسابات: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
+    } finally {
+      setLoading(false);
+    }
   }
+
 
   async function createAccount() {
     const { full_name, email, role, stage, all_stages, password } = form;
@@ -244,32 +253,72 @@ export default function Roles() {
     if (password.length < 6) return toast.error('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
     setCreating(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const resp = await fetch(
-        `${(supabase as any).supabaseUrl}/functions/v1/admin-create-teacher`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-          body: JSON.stringify({
-            full_name: full_name.trim(),
-            email: email.trim().toLowerCase(),
-            password,
-            stage: all_stages ? null : stage,
-            all_stages,
-            is_admin: role === 'admin',
-            school_id: schoolId,
-          }),
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        toast.error('انتهت جلسة الدخول. سجّل الدخول مجدداً ثم أعد المحاولة.');
+        return;
+      }
+      const { data: result, error } = await supabase.functions.invoke('admin-create-teacher', {
+        body: {
+          full_name: full_name.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          stage: all_stages ? null : stage,
+          all_stages,
+          is_admin: role === 'admin',
+          school_id: schoolId,
+        },
+      });
+      if (error) {
+        let message = error.message || 'تعذر الاتصال بخدمة إنشاء الحساب';
+        const context = (error as any).context;
+        if (context && typeof context.clone === 'function') {
+          try {
+            const body = await context.clone().json();
+            message = body?.error ?? body?.message ?? message;
+          } catch { /* Keep the SDK error message when there is no JSON body. */ }
         }
-      );
-      const result = await resp.json();
-      if (!resp.ok || result.error) { toast.error(result.error ?? 'فشل إنشاء الحساب'); return; }
+        toast.error(`تعذر إنشاء الحساب: ${message}`);
+        return;
+      }
+      if (result?.error) { toast.error(`تعذر إنشاء الحساب: ${result.error}`); return; }
+      if (!result?.ok || !result?.user_id) {
+        toast.error('لم تُرجع خدمة إنشاء الحساب تأكيداً. لم يتم تحديث القائمة.');
+        return;
+      }
+
+      let roleQuery = supabase.from('user_roles').select('id').eq('user_id', result.user_id).eq('role', role);
+      if (schoolId) roleQuery = roleQuery.eq('school_id', schoolId);
+      const { data: roleRow, error: roleCheckError } = await roleQuery.maybeSingle();
+      if (roleCheckError) {
+        toast.error(`تم إنشاء مستخدم الدخول، لكن تعذر التحقق من ربط الصلاحية: ${roleCheckError.message}`);
+        await load();
+        return;
+      }
+      if (!roleRow) {
+        const rolePayload: { user_id: string; role: 'admin' | 'teacher'; school_id?: string } = {
+          user_id: result.user_id,
+          role,
+          ...(schoolId ? { school_id: schoolId } : {}),
+        };
+        const { error: roleInsertError } = await supabase.from('user_roles').insert(rolePayload);
+        if (roleInsertError) {
+          toast.error(`تم إنشاء مستخدم الدخول لكن ربط صلاحية الحساب لم يكتمل: ${roleInsertError.message}. لا تعِد إنشاء الحساب بالبريد نفسه.`);
+          await load();
+          return;
+        }
+      }
+
       toast.success(`✅ تم إنشاء حساب ${full_name.trim()} بنجاح`);
       setForm({ full_name: '', email: '', role: 'teacher', stage: 'primary', all_stages: false, password: generatePassword() });
-      load();
+      await load();
+    } catch (error) {
+      toast.error(`تعذر إنشاء الحساب: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
     } finally {
       setCreating(false);
     }
   }
+
 
   async function updateStage(row: RoleRow, stage: Stage) {
     if (!row.teacher_id) { toast.error('هذا الحساب غير مرتبط بسجل معلم'); return; }
