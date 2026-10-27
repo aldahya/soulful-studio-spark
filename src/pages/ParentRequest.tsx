@@ -20,6 +20,8 @@ const REASONS = [
   'سبب آخر',
 ];
 
+const PICKUP_REASONS = ['خروج في الموعد'];
+
 const RELATIONSHIPS = [
   'والد',
   'والدة',
@@ -78,7 +80,8 @@ export default function ParentRequest() {
   const [receiverRelationship, setReceiverRelationship] = useState('');
 
   // --- بيانات الطلب ---
-  const [reason, setReason]     = useState(isPickup ? 'استلام من ولي الأمر' : REASONS[0]);
+  const [reason, setReason]     = useState(isPickup ? PICKUP_REASONS[0] : REASONS[0]);
+  const [pickupLocation, setPickupLocation] = useState('');
   const [exitTime, setExitTime] = useState('');
   const [notes, setNotes]       = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -187,6 +190,10 @@ export default function ParentRequest() {
       toast.error('يرجى تعبئة: رقم الجوال ووقت الخروج');
       return;
     }
+    if (isPickup && !pickupLocation) {
+      toast.error('يرجى تحديد مكان الخروج');
+      return;
+    }
     if (!receiverRelationship) {
       toast.error('يرجى تحديد صلة قرابة المستلم بالطالب');
       return;
@@ -201,6 +208,7 @@ export default function ParentRequest() {
         notes:                 notes.trim() || null,
         status:                'pending',
         request_type:          isPickup ? 'pickup' : 'permission',
+        ...(isPickup ? { pickup_location: pickupLocation } : {}),
         receiver_relationship: receiverRelationship,
       };
 
@@ -234,7 +242,8 @@ export default function ParentRequest() {
     setSubmittedStudents([]);
     setLookupDone(false);
     setReceiverRelationship('');
-    setReason(isPickup ? 'استلام من ولي الأمر' : REASONS[0]);
+    setReason(isPickup ? PICKUP_REASONS[0] : REASONS[0]);
+    setPickupLocation('');
     setExitTime(''); setNotes('');
     setSubmitted(false);
   }
@@ -483,10 +492,25 @@ export default function ParentRequest() {
                 <Select value={reason} onValueChange={setReason}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    {(isPickup ? PICKUP_REASONS : REASONS).map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
+
+              {isPickup && (
+                <div className="space-y-1">
+                  <Label className="text-sm font-semibold">
+                    مكان الخروج <span className="text-red-500">*</span>
+                  </Label>
+                  <Select value={pickupLocation} onValueChange={setPickupLocation}>
+                    <SelectTrigger><SelectValue placeholder="اختر مكان الخروج..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="مكتب التنسيق">مكتب التنسيق</SelectItem>
+                      <SelectItem value="بوابة المدرسة الرئيسية">بوابة المدرسة الرئيسية</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* وقت الخروج */}
               <div className="space-y-1">
