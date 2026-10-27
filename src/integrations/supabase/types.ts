@@ -401,7 +401,7 @@ export type Database = {
       app_role: "admin" | "teacher"
       attendance_status: "present" | "late" | "absent"
       permission_status: "pending" | "used" | "returned"
-      school_stage: "primary" | "intermediate" | "secondary"
+      school_stage: "primary" | "intermediate" | "secondary" | "kindergarten"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -532,7 +532,7 @@ export const Constants = {
       app_role: ["admin", "teacher"],
       attendance_status: ["present", "late", "absent"],
       permission_status: ["pending", "used", "returned"],
-      school_stage: ["primary", "intermediate", "secondary"],
+      school_stage: ["primary", "intermediate", "secondary", "kindergarten"],
     },
   },
 } as const
