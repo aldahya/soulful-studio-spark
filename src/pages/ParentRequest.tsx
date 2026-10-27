@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CheckCircle2, Loader2, School, ClipboardList, Phone, Search, Zap, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
+import { GROUP_LOGO } from '@/lib/school';
 
 const REASONS = [
   'مراجعة طبية',
@@ -45,10 +46,10 @@ const SCHOOL_IDS: Record<string, string> = {
 };
 
 const SCHOOL_META: Record<string, { name: string; subtitle: string; color: string; logo: string }> = {
-  'dahya-boys':  { name: 'مدارس الضاحية الأهلية', subtitle: 'للبنين',        color: '#0d9488', logo: '/logos/dahya-boys.png'  },
-  'dahya-girls': { name: 'مدارس الضاحية الأهلية', subtitle: 'للبنات',        color: '#2563eb', logo: '/logos/dahya-girls.png' },
-  'ajyal':       { name: 'مدارس أجيال المعالي',   subtitle: 'للبنين والبنات', color: '#d97706', logo: '/logos/ajyal.png'       },
-  'qanadeel':    { name: 'مدارس قناديل الشرق',    subtitle: 'للبنين والبنات', color: '#7c3aed', logo: '/logos/qanadeel.png'    },
+  'dahya-boys':  { name: 'مدارس الضاحية الأهلية', subtitle: 'للبنين',        color: '#0d9488', logo: GROUP_LOGO  },
+  'dahya-girls': { name: 'مدارس الضاحية الأهلية', subtitle: 'للبنات',        color: '#2563eb', logo: GROUP_LOGO },
+  'ajyal':       { name: 'مدارس أجيال المعالي',   subtitle: 'للبنين والبنات', color: '#d97706', logo: GROUP_LOGO       },
+  'qanadeel':    { name: 'مدارس قناديل الشرق',    subtitle: 'للبنين والبنات', color: '#7c3aed', logo: GROUP_LOGO    },
 };
 
 interface StudentOption {
