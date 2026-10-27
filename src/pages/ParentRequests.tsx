@@ -11,9 +11,15 @@ import { Input } from '@/components/ui/input';
 import {
   Bell, CheckCircle2, XCircle, Volume2, Loader2, RefreshCw,
   Clock, User, ClipboardList, Search, VolumeX, MessageCircle, Zap,
+  FileSpreadsheet, FileText, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { announceStudent, isTTSSupported, getAvailableArabicVoices } from '@/lib/tts';
+import {
+  exportParentRequestsExcel,
+  isWithinSaudiRequestDateRange,
+  openParentRequestsPdf,
+} from '@/lib/parentRequestExport';
 
 interface ParentRequest {
   id: string;
@@ -251,8 +257,11 @@ export default function ParentRequests() {
   const [rejecting, setRejecting]   = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [typeTab, setTypeTab]       = useState<'permission' | 'pickup' | 'all'>('permission');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const ttsSupported = isTTSSupported();
   const channelRef   = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const invalidDateRange = Boolean(fromDate && toDate && fromDate > toDate);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -430,12 +439,49 @@ export default function ParentRequests() {
       (typeTab === 'pickup'     && r.request_type === 'pickup');
     const matchStatus = statusFilter === 'all' || r.status === statusFilter;
     const q = search.toLowerCase();
-    const matchSearch = !q || r.student_name.includes(q) || (r.student_number ?? '').includes(q);
-    return matchType && matchStatus && matchSearch;
+    const matchSearch = !q || r.student_name.toLowerCase().includes(q) || (r.student_number ?? '').includes(q);
+    const matchDate = !invalidDateRange && isWithinSaudiRequestDateRange(r.created_at, fromDate, toDate);
+    return matchType && matchStatus && matchSearch && matchDate;
   });
 
   const pendingPermission = rows.filter((r) => r.status === 'pending' && (r.request_type === 'permission' || r.request_type == null)).length;
   const pendingPickup     = rows.filter((r) => r.status === 'pending' && r.request_type === 'pickup').length;
+  const typeFilterLabel = typeTab === 'permission' ? 'الاستئذان' : typeTab === 'pickup' ? 'الاستلام السريع' : 'كل الأنواع';
+  const statusFilterLabel = statusFilter === 'pending' ? 'قيد المراجعة' : statusFilter === 'approved' ? 'مؤكدة' : statusFilter === 'rejected' ? 'مرفوضة' : 'كل الحالات';
+  const exportFilterSummary = [
+    `النوع: ${typeFilterLabel}`,
+    `الحالة: ${statusFilterLabel}`,
+    fromDate ? `من ${fromDate}` : '',
+    toDate ? `إلى ${toDate}` : '',
+    search.trim() ? `البحث: ${search.trim()}` : '',
+  ].filter(Boolean).join(' — ');
+  const exportFileName = `طلبات_${typeTab}_${statusFilter}_${fromDate || 'البداية'}_${toDate || 'النهاية'}.xlsx`;
+
+  function exportAsPdf() {
+    if (invalidDateRange) {
+      toast.error('تاريخ «إلى» يجب أن يكون مساويًا أو بعد تاريخ «من»');
+      return;
+    }
+    if (!openParentRequestsPdf(filtered, schoolName, exportFilterSummary)) {
+      toast.error('تعذر فتح نافذة PDF؛ اسمح بالنوافذ المنبثقة ثم أعد المحاولة');
+      return;
+    }
+    toast.info('اختر «حفظ كملف PDF» من نافذة الطباعة');
+  }
+
+  function exportAsExcel() {
+    if (invalidDateRange) {
+      toast.error('تاريخ «إلى» يجب أن يكون مساويًا أو بعد تاريخ «من»');
+      return;
+    }
+    try {
+      exportParentRequestsExcel(filtered, schoolName, exportFilterSummary, exportFileName);
+      toast.success(`تم تصدير ${filtered.length} طلب إلى Excel`);
+    } catch (error) {
+      console.error('parent requests Excel export failed:', error);
+      toast.error('تعذر تصدير ملف Excel');
+    }
+  }
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -501,6 +547,74 @@ export default function ParentRequests() {
           <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث بالاسم أو الرقم..." className="pr-9" />
+          </div>
+        </div>
+        <div className="mt-4 border-t border-border pt-4 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="space-y-1.5 text-sm font-medium">
+              <span>من تاريخ الطلب</span>
+              <Input
+                type="date"
+                value={fromDate}
+                max={toDate || undefined}
+                onChange={(e) => setFromDate(e.target.value)}
+                aria-label="من تاريخ الطلب"
+                data-testid="request-date-from"
+                className="min-h-10"
+              />
+            </label>
+            <label className="space-y-1.5 text-sm font-medium">
+              <span>إلى تاريخ الطلب</span>
+              <Input
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(e) => setToDate(e.target.value)}
+                aria-label="إلى تاريخ الطلب"
+                data-testid="request-date-to"
+                className="min-h-10"
+              />
+            </label>
+          </div>
+          {invalidDateRange && (
+            <p className="text-sm text-destructive" role="alert">
+              تاريخ «إلى» يجب أن يكون مساويًا أو بعد تاريخ «من».
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={exportAsPdf}
+              disabled={filtered.length === 0 || invalidDateRange}
+              data-testid="export-parent-requests-pdf"
+            >
+              <FileText className="h-4 w-4 ml-1" />
+              تصدير PDF
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={exportAsExcel}
+              disabled={filtered.length === 0 || invalidDateRange}
+              data-testid="export-parent-requests-excel"
+            >
+              <FileSpreadsheet className="h-4 w-4 ml-1" />
+              تصدير Excel
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { setFromDate(''); setToDate(''); }}
+              disabled={!fromDate && !toDate}
+              data-testid="clear-parent-request-dates"
+            >
+              <X className="h-4 w-4 ml-1" />
+              مسح التاريخ
+            </Button>
+            <span className="text-xs text-muted-foreground mr-auto" aria-live="polite" data-testid="parent-request-result-count">
+              النتائج المطابقة: {filtered.length}
+            </span>
           </div>
         </div>
       </Card>
