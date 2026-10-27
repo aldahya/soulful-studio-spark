@@ -33,6 +33,7 @@ interface ParentRequest {
   whatsapp_sent: boolean | null;
   created_at: string;
   request_type: 'permission' | 'pickup' | null;
+  pickup_location: string | null;
 }
 
 const STATUS_MAP = {
@@ -121,6 +122,9 @@ function RequestCard({
               <Clock className="h-3.5 w-3.5" />
               وقت الخروج: <strong className="text-foreground">{req.requested_exit_time}</strong>
             </span>
+            {req.request_type === 'pickup' && req.pickup_location && (
+              <span className="text-foreground">مكان الخروج: <strong>{req.pickup_location}</strong></span>
+            )}
             {req.parent_phone && (
               <span className="flex items-center gap-1 font-mono text-xs">
                 <MessageCircle className="h-3.5 w-3.5 text-green-600" />{req.parent_phone}

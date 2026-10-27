@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle2, Loader2, School, ClipboardList, Phone, Search, Zap, UserCheck, CreditCard } from 'lucide-react';
+import { CheckCircle2, Loader2, School, ClipboardList, Phone, Search, Zap, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 const REASONS = [
@@ -19,6 +19,8 @@ const REASONS = [
   'موعد محدد مسبقاً',
   'سبب آخر',
 ];
+
+const PICKUP_REASONS = ['خروج في الموعد'];
 
 const RELATIONSHIPS = [
   'والد',
@@ -66,23 +68,20 @@ export default function ParentRequest() {
   const [parentPhone, setParentPhone]               = useState('');
   const [foundStudents, setFoundStudents]           = useState<StudentOption[]>([]);
   const [selectedStudentNums, setSelectedStudentNums] = useState<Set<string>>(new Set());
-  const [studentNumber, setStudentNumber]           = useState('');
   const [studentName, setStudentName]               = useState('');
   const [searchingPhone, setSearchingPhone]         = useState(false);
   const [phoneLookupDone, setPhoneLookupDone]       = useState(false);
   const [submittedStudents, setSubmittedStudents]   = useState<StudentOption[]>([]);
 
   // رقم الطالب المباشر (اختياري — بحث بديل)
-  const [lookingUp, setLookingUp]     = useState(false);
   const [lookupDone, setLookupDone]   = useState(false);
-  const numberTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- بيانات المستلم ---
-  const [receiverIdNumber, setReceiverIdNumber]       = useState('');
   const [receiverRelationship, setReceiverRelationship] = useState('');
 
   // --- بيانات الطلب ---
-  const [reason, setReason]     = useState(isPickup ? 'استلام من ولي الأمر' : REASONS[0]);
+  const [reason, setReason]     = useState(isPickup ? PICKUP_REASONS[0] : REASONS[0]);
+  const [pickupLocation, setPickupLocation] = useState('');
   const [exitTime, setExitTime] = useState('');
   const [notes, setNotes]       = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -154,7 +153,6 @@ export default function ParentRequest() {
   function applyStudent(s: StudentOption) {
     setSelectedStudentNums(new Set([s.student_number]));
     setStudentName(s.full_name);
-    setStudentNumber(s.student_number);
     setLookupDone(true);
   }
 
@@ -170,41 +168,7 @@ export default function ParentRequest() {
   function clearStudentSelection() {
     setSelectedStudentNums(new Set());
     setStudentName('');
-    setStudentNumber('');
     setLookupDone(false);
-  }
-
-  // ─── بحث برقم الطالب مباشرةً (بديل) ──────────────────────────────────────
-  async function lookupByNumber(num: string) {
-    if (!num.trim() || num.length < 2) { setLookupDone(false); return; }
-    setLookingUp(true);
-    try {
-      const schoolId = SCHOOL_IDS[schoolSlug];
-      let query = supabase
-        .from('students')
-        .select('student_number, full_name, parent_phone')
-        .eq('student_number', num.trim());
-      if (schoolId) query = query.eq('school_id', schoolId);
-      const { data } = await query.maybeSingle();
-      if (data) {
-        applyStudent(data as StudentOption);
-        if (data.parent_phone && !parentPhone) setParentPhone(data.parent_phone);
-      } else {
-        setLookupDone(false);
-      }
-    } catch {
-      setLookupDone(false);
-    } finally {
-      setLookingUp(false);
-    }
-  }
-
-  function handleNumberChange(val: string) {
-    setStudentNumber(val);
-    setLookupDone(false);
-    setSelectedStudent(null);
-    if (numberTimer.current) clearTimeout(numberTimer.current);
-    numberTimer.current = setTimeout(() => lookupByNumber(val), 700);
   }
 
   // ─── إرسال الطلب ──────────────────────────────────────────────────────────
@@ -219,15 +183,15 @@ export default function ParentRequest() {
       return;
     }
     if (!usingPhoneLookup && !studentName.trim()) {
-      toast.error('يرجى تحديد اسم الطالب — أدخل رقم الجوال أو رقم الطالب للبحث');
+      toast.error('يرجى إدخال اسم الطالب أو البحث برقم جوال ولي الأمر');
       return;
     }
     if (!parentPhone.trim() || !exitTime) {
       toast.error('يرجى تعبئة: رقم الجوال ووقت الخروج');
       return;
     }
-    if (!receiverIdNumber.trim()) {
-      toast.error('يرجى إدخال رقم هوية المستلم');
+    if (isPickup && !pickupLocation) {
+      toast.error('يرجى تحديد مكان الخروج');
       return;
     }
     if (!receiverRelationship) {
@@ -244,7 +208,7 @@ export default function ParentRequest() {
         notes:                 notes.trim() || null,
         status:                'pending',
         request_type:          isPickup ? 'pickup' : 'permission',
-        receiver_id_number:    receiverIdNumber.trim(),
+        ...(isPickup ? { pickup_location: pickupLocation } : {}),
         receiver_relationship: receiverRelationship,
       };
 
@@ -261,10 +225,10 @@ export default function ParentRequest() {
         const { error } = await (supabase as any).from('parent_requests').insert({
           ...commonFields,
           student_name:   studentName.trim(),
-          student_number: studentNumber.trim() || '—',
+          student_number: '—',
         });
         if (error) { toast.error('حدث خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى'); return; }
-        setSubmittedStudents([{ student_number: studentNumber.trim() || '—', full_name: studentName.trim(), parent_phone: parentPhone.trim() }]);
+        setSubmittedStudents([{ student_number: '—', full_name: studentName.trim(), parent_phone: parentPhone.trim() }]);
       }
       setSubmitted(true);
     } finally {
@@ -274,11 +238,12 @@ export default function ParentRequest() {
 
   function resetForm() {
     setParentPhone(''); setFoundStudents([]); setPhoneLookupDone(false);
-    setStudentNumber(''); setStudentName(''); setSelectedStudentNums(new Set());
+    setStudentName(''); setSelectedStudentNums(new Set());
     setSubmittedStudents([]);
     setLookupDone(false);
-    setReceiverIdNumber(''); setReceiverRelationship('');
-    setReason(isPickup ? 'استلام من ولي الأمر' : REASONS[0]);
+    setReceiverRelationship('');
+    setReason(isPickup ? PICKUP_REASONS[0] : REASONS[0]);
+    setPickupLocation('');
     setExitTime(''); setNotes('');
     setSubmitted(false);
   }
@@ -345,7 +310,6 @@ export default function ParentRequest() {
                   <span className="text-gray-500">الطلاب ({submittedStudents.length})</span>
                   {submittedStudents.map((s) => (
                     <div key={s.student_number} className="flex justify-between pr-2">
-                      <span className="font-mono text-xs text-gray-400">#{s.student_number}</span>
                       <span className="font-bold">{s.full_name}</span>
                     </div>
                   ))}
@@ -353,12 +317,9 @@ export default function ParentRequest() {
               ) : (
                 <>
                   <div className="flex justify-between"><span className="text-gray-500">الطالب/ة</span><span className="font-bold">{submittedStudents[0]?.full_name ?? studentName}</span></div>
-                  {(submittedStudents[0]?.student_number ?? studentNumber) && (submittedStudents[0]?.student_number ?? studentNumber) !== '—' && (
-                    <div className="flex justify-between"><span className="text-gray-500">الرقم</span><span className="font-mono">{submittedStudents[0]?.student_number ?? studentNumber}</span></div>
-                  )}
                 </>
               )}
-              <div className="flex justify-between"><span className="text-gray-500">المستلم</span><span>{receiverRelationship} — {receiverIdNumber}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">المستلم</span><span>{receiverRelationship}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">السبب</span><span>{reason}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">وقت الخروج</span><span>{exitTime}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">الجوال</span><span className="font-mono">{parentPhone}</span></div>
@@ -463,7 +424,6 @@ export default function ParentRequest() {
                           </span>
                           <span className="flex-1">
                             <span className="font-bold">{s.full_name}</span>
-                            <span className="text-gray-400 text-xs mr-2">#{s.student_number}</span>
                           </span>
                         </button>
                       );
@@ -476,30 +436,6 @@ export default function ParentRequest() {
                   )}
                 </div>
               )}
-
-              {/* رقم الطالب — بحث بديل إذا لم يُعثر عبر الجوال */}
-              <div className="space-y-1">
-                <Label className="text-sm font-semibold">
-                  رقم الطالب / الطالبة
-                  <span className="mr-2 text-xs font-normal text-gray-400">
-                    (اختياري — بحث بديل)
-                  </span>
-                </Label>
-                <div className="relative">
-                  <Input
-                    value={studentNumber}
-                    onChange={(e) => handleNumberChange(e.target.value)}
-                    placeholder="مثال: 1234"
-                    dir="ltr"
-                    className="pl-10"
-                  />
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                    {lookingUp
-                      ? <Loader2 className="h-4 w-4 animate-spin" />
-                      : <Search className="h-4 w-4" />}
-                  </div>
-                </div>
-              </div>
 
               {/* اسم الطالب — يُملأ تلقائياً أو يدوياً */}
               <div className="space-y-1">
@@ -522,23 +458,6 @@ export default function ParentRequest() {
             {/* ══════════════════════════════════════ */}
             <div className="space-y-4 pt-2 border-t border-gray-100">
               <p className="text-xs font-bold uppercase tracking-wide text-gray-400">② بيانات المستلم</p>
-
-              {/* رقم هوية المستلم */}
-              <div className="space-y-1">
-                <Label className="text-sm font-semibold">
-                  <CreditCard className="inline h-3.5 w-3.5 ml-1" />
-                  رقم هوية المستلم <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  value={receiverIdNumber}
-                  onChange={(e) => setReceiverIdNumber(e.target.value)}
-                  placeholder="10 أرقام"
-                  dir="ltr"
-                  inputMode="numeric"
-                  maxLength={10}
-                  required
-                />
-              </div>
 
               {/* صلة القرابة */}
               <div className="space-y-1">
@@ -573,10 +492,25 @@ export default function ParentRequest() {
                 <Select value={reason} onValueChange={setReason}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    {(isPickup ? PICKUP_REASONS : REASONS).map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
+
+              {isPickup && (
+                <div className="space-y-1">
+                  <Label className="text-sm font-semibold">
+                    مكان الخروج <span className="text-red-500">*</span>
+                  </Label>
+                  <Select value={pickupLocation} onValueChange={setPickupLocation}>
+                    <SelectTrigger><SelectValue placeholder="اختر مكان الخروج..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="مكتب التنسيق">مكتب التنسيق</SelectItem>
+                      <SelectItem value="بوابة المدرسة الرئيسية">بوابة المدرسة الرئيسية</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* وقت الخروج */}
               <div className="space-y-1">
