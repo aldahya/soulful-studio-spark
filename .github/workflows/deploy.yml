@@ -37,11 +37,6 @@ jobs:
           RewriteCond %{REQUEST_FILENAME} !-d
           RewriteRule . /index.html [L]' > dist/.htaccess
 
-      - name: Install SFTP password helper
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y sshpass
-
       - name: Verify Hostinger SSH fingerprint
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
@@ -65,15 +60,22 @@ jobs:
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
-          SSHPASS: ${{ secrets.FTP_PASSWORD }}
+          HOSTINGER_SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s\n' "$HOSTINGER_SSH_PRIVATE_KEY" > "$key_file"
+          chmod 600 "$key_file"
           remote_dir="/home/${FTP_USERNAME}/domains/almalkieducational.com/public_html/aldaahia"
-          printf 'cd %s\npwd\nlcd dist\nput -r *\nput .htaccess\n' "$remote_dir" | sshpass -e sftp \
+          printf 'cd %s\npwd\nlcd dist\nput -r *\nput .htaccess\n' "$remote_dir" | sftp -b - \
+            -i "$key_file" \
             -P 65002 \
-            -oBatchMode=no \
+            -oBatchMode=yes \
             -oStrictHostKeyChecking=yes \
             -oUserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            -oPreferredAuthentications=password \
-            -oPubkeyAuthentication=no \
+            -oPreferredAuthentications=publickey \
+            -oIdentitiesOnly=yes \
+            -oPubkeyAuthentication=yes \
+            -oPasswordAuthentication=no \
             "${FTP_USERNAME}@${FTP_SERVER}"
