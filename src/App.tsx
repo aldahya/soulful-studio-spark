@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -40,6 +40,8 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             {/* صفحة دليل الاستخدام — عامة لا تحتاج تسجيل دخول */}
             <Route path="/how-it-works" element={<HowItWorks />} />
+            {/* دعم اختصار التثبيت السابق الذي كان يفتح /index.html */}
+            <Route path="/index.html" element={<Navigate to="/" replace />} />
             {/* نموذج الاستئذان لولي الأمر — عام بدون تسجيل دخول */}
             <Route path="/parent-request" element={<ParentRequest />} />
 

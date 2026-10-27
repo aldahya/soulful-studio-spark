@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Bot, X, Send, Loader2, Sparkles, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { GROUP_LOGO } from '@/lib/school';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -34,7 +35,7 @@ export function GeminiChat() {
     if (open && messages.length === 0) {
       setMessages([{
         role: 'assistant',
-        text: 'مرحباً! أنا مساعدك الذكي لنظام الاستئذان 🎓\nكيف يمكنني مساعدتك اليوم؟',
+        text: 'مرحباً! أنا مساعد المالكي 🎓\nكيف يمكنني مساعدتك اليوم؟',
       }]);
     }
     if (open) setTimeout(() => inputRef.current?.focus(), 300);
@@ -93,22 +94,28 @@ export function GeminiChat() {
       {/* Floating button */}
       <button
         onClick={() => setOpen((v) => !v)}
+        dir="rtl"
         className={cn(
-          'fixed bottom-6 left-6 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-2xl transition-all duration-300',
+          'fixed bottom-6 left-6 z-50 flex items-center shadow-2xl transition-all duration-300',
           open
-            ? 'bg-rose-500 hover:bg-rose-600 rotate-0'
-            : 'bg-gradient-to-br from-teal-500 to-teal-700 hover:scale-110',
+            ? 'h-14 w-14 justify-center rounded-full bg-rose-500 hover:bg-rose-600'
+            : 'h-14 gap-2 rounded-full border border-teal-100 bg-white py-1 pl-1.5 pr-3 text-teal-900 hover:scale-[1.03]',
         )}
-        aria-label="مساعد ذكي"
+        aria-label={open ? 'إغلاق مساعد المالكي' : 'فتح مساعد المالكي'}
+        title={open ? 'إغلاق مساعد المالكي' : 'مساعد المالكي'}
+        data-testid="floating-malki-assistant"
       >
         {open
           ? <X className="h-6 w-6 text-white" />
-          : <Bot className="h-7 w-7 text-white" />}
-        {!open && (
-          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[9px] font-bold text-white shadow">
-            AI
-          </span>
-        )}
+          : (
+            <>
+              <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-teal-100">
+                <span className="pointer-events-none absolute -inset-1 rounded-full border-2 border-teal-500/60 animate-ping motion-reduce:animate-none" />
+                <img src={GROUP_LOGO} alt="" className="relative z-10 h-11 w-11 rounded-full object-contain" />
+              </span>
+              <span className="whitespace-nowrap text-sm font-extrabold">مساعد المالكي</span>
+            </>
+          )}
       </button>
 
       {/* Chat window */}
@@ -125,7 +132,7 @@ export function GeminiChat() {
             <Sparkles className="h-5 w-5" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-bold">المساعد الذكي</p>
+            <p className="text-sm font-bold">مساعد المالكي</p>
             <p className="text-xs text-teal-100">مدعوم بـ Gemini AI</p>
           </div>
           <button onClick={() => setOpen(false)} className="rounded-full p-1 hover:bg-white/20 transition-colors">
