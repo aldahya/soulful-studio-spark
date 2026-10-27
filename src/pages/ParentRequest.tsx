@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle2, Loader2, School, ClipboardList, Phone, Search, Zap, UserCheck, CreditCard } from 'lucide-react';
+import { CheckCircle2, Loader2, School, ClipboardList, Phone, Search, Zap, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 const REASONS = [
@@ -78,7 +78,6 @@ export default function ParentRequest() {
   const numberTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- بيانات المستلم ---
-  const [receiverIdNumber, setReceiverIdNumber]       = useState('');
   const [receiverRelationship, setReceiverRelationship] = useState('');
 
   // --- بيانات الطلب ---
@@ -226,10 +225,6 @@ export default function ParentRequest() {
       toast.error('يرجى تعبئة: رقم الجوال ووقت الخروج');
       return;
     }
-    if (!receiverIdNumber.trim()) {
-      toast.error('يرجى إدخال رقم هوية المستلم');
-      return;
-    }
     if (!receiverRelationship) {
       toast.error('يرجى تحديد صلة قرابة المستلم بالطالب');
       return;
@@ -244,7 +239,6 @@ export default function ParentRequest() {
         notes:                 notes.trim() || null,
         status:                'pending',
         request_type:          isPickup ? 'pickup' : 'permission',
-        receiver_id_number:    receiverIdNumber.trim(),
         receiver_relationship: receiverRelationship,
       };
 
@@ -277,7 +271,7 @@ export default function ParentRequest() {
     setStudentNumber(''); setStudentName(''); setSelectedStudentNums(new Set());
     setSubmittedStudents([]);
     setLookupDone(false);
-    setReceiverIdNumber(''); setReceiverRelationship('');
+    setReceiverRelationship('');
     setReason(isPickup ? 'استلام من ولي الأمر' : REASONS[0]);
     setExitTime(''); setNotes('');
     setSubmitted(false);
@@ -358,7 +352,7 @@ export default function ParentRequest() {
                   )}
                 </>
               )}
-              <div className="flex justify-between"><span className="text-gray-500">المستلم</span><span>{receiverRelationship} — {receiverIdNumber}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">المستلم</span><span>{receiverRelationship}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">السبب</span><span>{reason}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">وقت الخروج</span><span>{exitTime}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">الجوال</span><span className="font-mono">{parentPhone}</span></div>
@@ -522,23 +516,6 @@ export default function ParentRequest() {
             {/* ══════════════════════════════════════ */}
             <div className="space-y-4 pt-2 border-t border-gray-100">
               <p className="text-xs font-bold uppercase tracking-wide text-gray-400">② بيانات المستلم</p>
-
-              {/* رقم هوية المستلم */}
-              <div className="space-y-1">
-                <Label className="text-sm font-semibold">
-                  <CreditCard className="inline h-3.5 w-3.5 ml-1" />
-                  رقم هوية المستلم <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  value={receiverIdNumber}
-                  onChange={(e) => setReceiverIdNumber(e.target.value)}
-                  placeholder="10 أرقام"
-                  dir="ltr"
-                  inputMode="numeric"
-                  maxLength={10}
-                  required
-                />
-              </div>
 
               {/* صلة القرابة */}
               <div className="space-y-1">
