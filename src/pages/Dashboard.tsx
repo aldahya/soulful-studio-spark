@@ -75,16 +75,6 @@ const EMPTY_SCAN_WEEK = { duplicate: 0, permission_issued: 0, permission_used: 0
   const loadRequest = useRef(0);
   const displayedSchoolId = useRef<string | null>(null);
 
-    useEffect(() => {
-      document.title = 'لوحة التحكم | نظام الضاحية الذكي';
-    const t = setInterval(() => {
-      const current = new Date();
-      setNow(current);
-      if (!authLoading && schoolId && document.visibilityState === 'visible') void loadAll();
-    }, 60_000);
-      return () => clearInterval(t);
-  }, [authLoading, schoolId, loadAll]);
-
   const loadAll = useCallback(async () => {
     const requestId = ++loadRequest.current;
     if (!schoolId) {
@@ -218,6 +208,16 @@ const EMPTY_SCAN_WEEK = { duplicate: 0, permission_issued: 0, permission_used: 0
       if (requestId === loadRequest.current) setLoading(false);
     }
   }, [schoolId]);
+
+  useEffect(() => {
+    document.title = 'لوحة التحكم | نظام الضاحية الذكي';
+    const t = setInterval(() => {
+      const current = new Date();
+      setNow(current);
+      if (!authLoading && schoolId && document.visibilityState === 'visible') void loadAll();
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [authLoading, schoolId, loadAll]);
 
   useEffect(() => {
     if (authLoading) return;
