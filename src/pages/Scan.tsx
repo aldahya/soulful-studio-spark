@@ -11,7 +11,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ScanLine, CheckCircle2, AlertCircle, Clock, XCircle, LogOut, ArrowLeftRight, Keyboard, Camera, ShieldAlert } from 'lucide-react';
+import { ScanLine, CheckCircle2, AlertCircle, Clock, XCircle, LogOut, ArrowLeftRight, Keyboard, Camera, ShieldAlert, Search, Loader2 } from 'lucide-react';
 import { STATUS_LABELS, STAGE_LABELS, todayISO, type AttendanceStatus } from '@/lib/i18n';
 import { buildNotifyMessage } from '@/lib/whatsappTemplates';
 import { useAuth } from '@/hooks/useAuth';
@@ -25,6 +25,16 @@ interface LogEntry { time: string; ok: boolean; text: string; tag?: string }
 interface DupContext {
   studentId: string; studentName: string; studentNumber: string; existingStatus: AttendanceStatus;
 }
+interface StudentSuggestion {
+  id: string;
+  full_name: string;
+  student_number: string;
+  stage: string;
+  classes: { name: string } | null;
+}
+interface ScanStudent extends StudentSuggestion {
+  parent_phone: string | null;
+}
 
 function normalizeStudentIdentifier(value: string) {
   return value.trim().replace(/[٠-٩۰-۹]/g, (digit) => {
@@ -33,9 +43,22 @@ function normalizeStudentIdentifier(value: string) {
   });
 }
 
+function isStudentNameQuery(value: string) {
+  const query = value.trim();
+  return query.length >= 2
+    && !/[0-9٠-٩۰-۹]/.test(query)
+    && !/^ALD[-\s]/i.test(query)
+    && /[A-Za-z\u0600-\u06FF]/.test(query);
+}
+
 export default function Scan() {
   const { user, isAdmin, teacherId, teacherStage, schoolId } = useAuth();
   const [code, setCode] = useState('');
+  const [suggestions, setSuggestions] = useState<StudentSuggestion[]>([]);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [suggestionError, setSuggestionError] = useState(false);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const [status, setStatus] = useState<AttendanceStatus>('present');
   const [autoMode, setAutoMode] = useState(true); // تلقائي: متأخر بعد 7:30
   const [log, setLog] = useState<LogEntry[]>([]);
@@ -57,6 +80,43 @@ export default function Scan() {
   const [permNotes, setPermNotes] = useState('');
 
   useEffect(() => {
+    const searchTerm = code.trim();
+    if (!schoolId || !isStudentNameQuery(searchTerm)) {
+      setSuggestions([]);
+      setSuggestionLoading(false);
+      setSuggestionError(false);
+      setActiveSuggestion(-1);
+      return;
+    }
+
+    let cancelled = false;
+    setSuggestionLoading(true);
+    setSuggestionError(false);
+    const timer = window.setTimeout(async () => {
+      const safeTerm = searchTerm.replace(/[%_]/g, '').replace(/\s+/g, ' ').trim();
+      let query = supabase
+        .from('students')
+        .select('id, full_name, student_number, stage, classes(name)')
+        .eq('school_id', schoolId)
+        .ilike('full_name', `${safeTerm}%`);
+
+      if (!isAdmin && teacherStage) query = query.eq('stage', teacherStage);
+
+      const { data, error } = await query.order('full_name', { ascending: true }).limit(8);
+      if (cancelled) return;
+      setSuggestions((data ?? []) as StudentSuggestion[]);
+      setSuggestionError(Boolean(error));
+      setSuggestionLoading(false);
+      setActiveSuggestion(-1);
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [code, schoolId, isAdmin, teacherStage]);
+
+  useEffect(() => {
     document.title = 'مسح الباركود | نظام الضاحية';
     inputRef.current?.focus();
     if (!schoolId) return;
@@ -71,16 +131,58 @@ export default function Scan() {
   function flashOk() { setFlash('ok'); setTimeout(() => setFlash(null), 700); }
   function flashErr() { setFlash('err'); setTimeout(() => setFlash(null), 700); }
 
+  async function selectSuggestion(suggestion: StudentSuggestion) {
+    setSuggestionsOpen(false);
+    setSuggestions([]);
+    setCode('');
+    setActiveSuggestion(-1);
+    await processCode(suggestion.student_number, suggestion.id);
+    focusInput();
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = code.trim();
     if (!trimmed) return;
+    if (isStudentNameQuery(trimmed)) {
+      setSuggestionsOpen(true);
+      toast.error(suggestions.length > 1
+        ? 'اختر اسم الطالب من قائمة الاقتراحات'
+        : 'انتظر ظهور اسم الطالب ثم اختره من القائمة');
+      return;
+    }
+    setSuggestionsOpen(false);
     setCode('');
     await processCode(trimmed);
     focusInput();
   }
 
-  async function processCode(trimmed: string) {
+  function handleSuggestionKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!isStudentNameQuery(code)) return;
+
+    if (e.key === 'ArrowDown' && suggestions.length > 0) {
+      e.preventDefault();
+      setSuggestionsOpen(true);
+      setActiveSuggestion((current) => (current + 1) % suggestions.length);
+    } else if (e.key === 'ArrowUp' && suggestions.length > 0) {
+      e.preventDefault();
+      setSuggestionsOpen(true);
+      setActiveSuggestion((current) => (current <= 0 ? suggestions.length - 1 : current - 1));
+    } else if (e.key === 'Escape') {
+      setSuggestionsOpen(false);
+      setActiveSuggestion(-1);
+    } else if (e.key === 'Enter' && suggestionsOpen) {
+      if (activeSuggestion >= 0 && suggestions[activeSuggestion]) {
+        e.preventDefault();
+        void selectSuggestion(suggestions[activeSuggestion]);
+      } else if (suggestions.length === 1) {
+        e.preventDefault();
+        void selectSuggestion(suggestions[0]);
+      }
+    }
+  }
+
+  async function processCode(trimmed: string, selectedStudentId?: string) {
     if (processing.current) return;
     const identifier = normalizeStudentIdentifier(trimmed);
     if (!schoolId) {
@@ -105,34 +207,51 @@ export default function Scan() {
     processing.current = true;
     try {
       const studentSelection = 'id, full_name, student_number, stage, parent_phone, classes(name)';
-      const { data: barcodeStudent, error: barcodeError } = await (supabase
-        .from('students').select(studentSelection)
-        .eq('school_id', schoolId)
-        .eq('barcode', identifier.toUpperCase())
-        .maybeSingle());
-
-      if (barcodeError) {
-        pushLog(false, `تعذر البحث عن الطالب: ${barcodeError.message}`);
-        toast.error('تعذر البحث في سجلات المدرسة');
-        beepError(); flashErr();
-        return;
-      }
-
-      let student = barcodeStudent;
-      if (!student) {
-        const { data: numberStudent, error: numberError } = await (supabase
+      let student: ScanStudent | null = null;
+      if (selectedStudentId) {
+        const { data, error } = await supabase
           .from('students').select(studentSelection)
           .eq('school_id', schoolId)
-          .eq('student_number', identifier)
-          .maybeSingle());
+          .eq('id', selectedStudentId)
+          .maybeSingle();
 
-        if (numberError) {
-          pushLog(false, `تعذر البحث عن الطالب: ${numberError.message}`);
+        if (error) {
+          pushLog(false, `تعذر البحث عن الطالب: ${error.message}`);
           toast.error('تعذر البحث في سجلات المدرسة');
           beepError(); flashErr();
           return;
         }
-        student = numberStudent;
+        student = data as ScanStudent | null;
+      } else {
+        const { data: barcodeStudent, error: barcodeError } = await supabase
+          .from('students').select(studentSelection)
+          .eq('school_id', schoolId)
+          .eq('barcode', identifier.toUpperCase())
+          .maybeSingle();
+
+        if (barcodeError) {
+          pushLog(false, `تعذر البحث عن الطالب: ${barcodeError.message}`);
+          toast.error('تعذر البحث في سجلات المدرسة');
+          beepError(); flashErr();
+          return;
+        }
+
+        student = barcodeStudent as ScanStudent | null;
+        if (!student) {
+          const { data: numberStudent, error: numberError } = await supabase
+            .from('students').select(studentSelection)
+            .eq('school_id', schoolId)
+            .eq('student_number', identifier)
+            .maybeSingle();
+
+          if (numberError) {
+            pushLog(false, `تعذر البحث عن الطالب: ${numberError.message}`);
+            toast.error('تعذر البحث في سجلات المدرسة');
+            beepError(); flashErr();
+            return;
+          }
+          student = numberStudent as ScanStudent | null;
+        }
       }
 
       if (!student) {
@@ -335,14 +454,14 @@ export default function Scan() {
       </header>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2 p-6 shadow-soft relative overflow-hidden">
+        <Card className="lg:col-span-2 p-6 shadow-soft relative overflow-visible">
           {flash === 'ok' && (
-            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-success/15 animate-in fade-in zoom-in duration-200">
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-xl bg-success/15 animate-in fade-in zoom-in duration-200">
               <CheckCircle2 className="h-32 w-32 text-success drop-shadow-[0_0_20px_hsl(var(--success))]" strokeWidth={3} />
             </div>
           )}
           {flash === 'err' && (
-            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-destructive/15 animate-in fade-in zoom-in duration-200">
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-xl bg-destructive/15 animate-in fade-in zoom-in duration-200">
               <XCircle className="h-32 w-32 text-destructive" strokeWidth={3} />
             </div>
           )}
@@ -390,12 +509,74 @@ export default function Scan() {
                   <Input
                     ref={inputRef}
                     value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    placeholder="رقم الطالب أو امسح الباركود"
+                    onChange={(e) => {
+                      setCode(e.target.value);
+                      setSuggestionsOpen(true);
+                      setActiveSuggestion(-1);
+                    }}
+                    onFocus={() => {
+                      if (isStudentNameQuery(code)) setSuggestionsOpen(true);
+                    }}
+                    onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 120)}
+                    onKeyDown={handleSuggestionKeyDown}
+                    placeholder="اسم الطالب أو رقمه أو امسح الباركود"
                     className="h-16 pr-14 text-center text-xl font-mono tracking-widest shadow-soft"
-                    dir="ltr"
+                    dir="auto"
+                    autoComplete="off"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={suggestionsOpen && isStudentNameQuery(code)}
+                    aria-controls="scan-student-suggestions"
+                    aria-activedescendant={activeSuggestion >= 0 ? `scan-student-option-${activeSuggestion}` : undefined}
                     autoFocus
                   />
+                  {suggestionsOpen && isStudentNameQuery(code) && (
+                    <div
+                      id="scan-student-suggestions"
+                      role="listbox"
+                      aria-label="اقتراحات أسماء الطلاب"
+                      className="absolute inset-x-0 top-full z-50 mt-2 max-h-72 overflow-y-auto rounded-xl border bg-background p-1 shadow-xl"
+                    >
+                      {suggestionLoading ? (
+                        <div className="flex items-center justify-center gap-2 px-4 py-4 text-sm text-muted-foreground" role="status">
+                          <Loader2 className="h-4 w-4 animate-spin" /> جارٍ البحث في سجلات المدرسة...
+                        </div>
+                      ) : suggestionError ? (
+                        <p className="px-4 py-4 text-center text-sm text-destructive">تعذر البحث عن أسماء الطلاب</p>
+                      ) : suggestions.length === 0 ? (
+                        <p className="px-4 py-4 text-center text-sm text-muted-foreground">لا توجد أسماء مطابقة في سجلات هذه المدرسة</p>
+                      ) : (
+                        suggestions.map((suggestion, index) => (
+                          <button
+                            key={suggestion.id}
+                            id={`scan-student-option-${index}`}
+                            type="button"
+                            role="option"
+                            aria-selected={activeSuggestion === index}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => void selectSuggestion(suggestion)}
+                            className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-right transition-colors ${
+                              activeSuggestion === index ? 'bg-primary/10 text-primary' : 'hover:bg-muted'
+                            }`}
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              <span className="min-w-0">
+                                <span className="block truncate font-semibold">{suggestion.full_name}</span>
+                                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                                  رقم الطالب: {suggestion.student_number}
+                                  {suggestion.classes?.name ? ` · ${suggestion.classes.name}` : ''}
+                                </span>
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {STAGE_LABELS[suggestion.stage as keyof typeof STAGE_LABELS] ?? suggestion.stage}
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               </form>
             </TabsContent>
@@ -405,7 +586,7 @@ export default function Scan() {
           </Tabs>
           <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
             <ArrowLeftRight className="h-3.5 w-3.5" />
-            أدخل رقم الطالب أو امسح الباركود · المسح الأول حضور · المسح التالي يستأذن/يسجل الخروج حسب الحالة
+            اكتب أول حروف الاسم واختر الطالب من الاقتراحات، أو أدخل الرقم/امسح الباركود · المسح الأول حضور
           </p>
         </Card>
 
