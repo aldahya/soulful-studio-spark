@@ -597,20 +597,35 @@ Deno.serve(async (req: Request) => {
       'لا تكشف أرقام الهوية أو الجوالات أو كلمات المرور أو المفاتيح. لا تنفذ أي تعديل؛ هذا المساعد للقراءة فقط.',
     ].join('\n');
     const userPrompt = `السؤال: ${question}\n\nبيانات الفرع الحالية بصيغة JSON:\n${JSON.stringify(context)}`;
-    const geminiResponse = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemInstruction }] },
-          contents: [...history, { role: 'user', parts: [{ text: userPrompt }] }],
-          generationConfig: { maxOutputTokens: 8192, temperature: 0.2 },
-        }),
-      },
-    );
-    if (!geminiResponse.ok) {
-      console.error('school-assistant model request failed with status', geminiResponse.status);
+    const modelCandidates = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+    let geminiResponse: Response | null = null;
+    let failedModel = '';
+    for (const model of modelCandidates) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        geminiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemInstruction }] },
+              contents: [...history, { role: 'user', parts: [{ text: userPrompt }] }],
+              generationConfig: { maxOutputTokens: 1024, temperature: 0.2 },
+            }),
+          },
+        );
+        if (geminiResponse.ok) break;
+        failedModel = model;
+        const retryable = [429, 500, 502, 503, 504].includes(geminiResponse.status);
+        if (!retryable || attempt === 1) break;
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+      if (geminiResponse?.ok) break;
+      if (geminiResponse && [401, 403].includes(geminiResponse.status)) break;
+      console.warn('school-assistant model unavailable; trying fallback', model, geminiResponse?.status);
+    }
+    if (!geminiResponse?.ok) {
+      console.error('school-assistant model requests exhausted', failedModel, geminiResponse?.status);
       return jsonResponse({ error: 'تعذر إنشاء الإجابة الآن؛ حاول مرة أخرى' }, 502);
     }
     const modelData = await responseJson(geminiResponse);
