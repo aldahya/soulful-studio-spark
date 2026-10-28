@@ -77,7 +77,7 @@ export function GeminiChat() {
       if (isCurrentScope()) {
         setMessages((prev) => [...prev, {
           role: 'assistant',
-          text: 'تعذر قراءة بيانات هذا الفرع الآن. حاول مرة أخرى بعد قليل.',
+          text: 'تعذر إكمال الإجابة الآن. حاول مرة أخرى بعد قليل.',
         }]);
       }
     } finally {

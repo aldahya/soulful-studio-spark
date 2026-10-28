@@ -598,7 +598,7 @@ Deno.serve(async (req: Request) => {
     ].join('\n');
     const userPrompt = `السؤال: ${question}\n\nبيانات الفرع الحالية بصيغة JSON:\n${JSON.stringify(context)}`;
     const geminiResponse = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
