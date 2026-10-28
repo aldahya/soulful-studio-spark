@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
   import { Link } from 'react-router-dom';
   import { supabase } from '@/integrations/supabase/client';
   import { Card } from '@/components/ui/card';
@@ -7,10 +7,10 @@ import { useEffect, useMemo, useState } from 'react';
   import {
     Users, GraduationCap, UserCog, ClipboardCheck, TrendingUp, ScanLine,
     FileSignature, FileBarChart, ArrowLeft, Sparkles, CalendarDays, Loader2,
-    Copy, LogOut, Undo2, ShieldAlert,
+    Copy, LogOut, Undo2, ShieldAlert, AlertTriangle, RefreshCw,
   } from 'lucide-react';
   import { useSchoolSettings } from '@/lib/school';
-  import { todayISO, formatDate, STATUS_LABELS } from '@/lib/i18n';
+import { formatDate, STATUS_LABELS } from '@/lib/i18n';
   import { useAuth } from '@/hooks/useAuth';
   import {
     ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -31,43 +31,83 @@ import { useEffect, useMemo, useState } from 'react';
   interface DayPoint { day: string; حاضر: number; متأخر: number; غائب: number }
   interface RecentRow { id: string; name: string; status: string; time: string }
 
+function riyadhDateKey(date: Date) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Riyadh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date).map(({ type, value }) => [type, value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function shiftDateKey(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function startOfRiyadhDayIso(dateKey: string) {
+  return `${dateKey}T00:00:00+03:00`;
+}
+
+const EMPTY_STATS: Stats = {
+  students: 0, classes: 0, teachers: 0,
+  presentToday: 0, absentToday: 0, lateToday: 0, permissionsToday: 0,
+};
+const EMPTY_SCAN_WEEK = { duplicate: 0, permission_issued: 0, permission_used: 0, permission_returned: 0 };
+
   export default function Dashboard() {
     const settings = useSchoolSettings();
-    const { isAdmin, user, schoolId } = useAuth();
-    const [stats, setStats] = useState<Stats>({ students: 0, classes: 0, teachers: 0, presentToday: 0, absentToday: 0, lateToday: 0, permissionsToday: 0 });
+  const { isAdmin, user, schoolId, loading: authLoading } = useAuth();
+  const [stats, setStats] = useState<Stats>(EMPTY_STATS);
     const [weekTrend, setWeekTrend] = useState<DayPoint[]>([]);
     const [monthTrend, setMonthTrend] = useState<DayPoint[]>([]);
     const [trendPeriod, setTrendPeriod] = useState<'week' | 'month'>('week');
     const [recent, setRecent] = useState<RecentRow[]>([]);
-    const [scanWeek, setScanWeek] = useState({ duplicate: 0, permission_issued: 0, permission_used: 0, permission_returned: 0 });
+  const [scanWeek, setScanWeek] = useState(EMPTY_SCAN_WEEK);
     const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
     const [now, setNow] = useState(new Date());
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const loadRequest = useRef(0);
+  const displayedSchoolId = useRef<string | null>(null);
 
     useEffect(() => {
       document.title = 'لوحة التحكم | نظام الضاحية الذكي';
-      loadAll();
-      const t = setInterval(() => setNow(new Date()), 60_000);
+    const t = setInterval(() => {
+      const current = new Date();
+      setNow(current);
+      if (!authLoading && schoolId && document.visibilityState === 'visible') void loadAll();
+    }, 60_000);
       return () => clearInterval(t);
-    }, []);
+  }, [authLoading, schoolId, loadAll]);
 
-    async function loadAll() {
+  const loadAll = useCallback(async () => {
+    const requestId = ++loadRequest.current;
+    if (!schoolId) {
+      setLoadError('هذا الحساب غير مرتبط بمدرسة؛ لم تُعرض أرقام افتراضية.');
+      setLoading(false);
+      return;
+    }
+    if (displayedSchoolId.current !== schoolId) {
+      displayedSchoolId.current = schoolId;
+      setStats(EMPTY_STATS);
+      setWeekTrend([]);
+      setMonthTrend([]);
+      setRecent([]);
+      setScanWeek(EMPTY_SCAN_WEEK);
+      setLastUpdatedAt(null);
+    }
       setLoading(true);
-      const today = todayISO();
+    setLoadError(null);
+    const today = riyadhDateKey(new Date());
+    const week7ISO = shiftDateKey(today, -6);
+    const month30ISO = shiftDateKey(today, -29);
 
-      // 7-day window
-      const week7Start = new Date();
-      week7Start.setDate(week7Start.getDate() - 6);
-      const week7ISO = week7Start.toISOString().slice(0, 10);
-
-      // 30-day window
-      const month30Start = new Date();
-      month30Start.setDate(month30Start.getDate() - 29);
-      const month30ISO = month30Start.toISOString().slice(0, 10);
-
-      const weekStart = new Date();
-      weekStart.setDate(weekStart.getDate() - 7);
-
-      if (!schoolId) return;
+    try {
       const [s, c, t, todayAtt, weekAtt, monthAtt, perms, recentAtt, scans] = await Promise.all([
         supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
         supabase.from('classes').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
@@ -83,8 +123,29 @@ import { useEffect, useMemo, useState } from 'react';
           .eq('date', today)
           .order('recorded_at', { ascending: false })
           .limit(8),
-        supabase.from('scan_events').select('kind').gte('created_at', weekStart.toISOString()),
+        supabase.from('scan_events')
+          .select('kind, students!inner(school_id)')
+          .eq('students.school_id', schoolId)
+          .gte('created_at', startOfRiyadhDayIso(week7ISO)),
       ]);
+
+      if (requestId !== loadRequest.current) return;
+      const queryFailures = [
+        ['إجمالي الطلاب', s.error],
+        ['الفصول', c.error],
+        ['المعلمين', t.error],
+        ['حضور اليوم', todayAtt.error],
+        ['اتجاه الأسبوع', weekAtt.error],
+        ['اتجاه الشهر', monthAtt.error],
+        ['الاستذانات', perms.error],
+        ['آخر عمليات الحضور', recentAtt.error],
+        ['أحداث المسح', scans.error],
+      ].filter(([, error]) => error);
+
+      if (queryFailures.length > 0) {
+        setLoadError(`تعذر تحميل بيانات حقيقية من: ${queryFailures.map(([label]) => label).join('، ')}. أعد المحاولة بعد التحقق من اتصال قاعدة البيانات.`);
+        return;
+      }
 
       const tRecords = todayAtt.data ?? [];
       setStats({
@@ -97,13 +158,14 @@ import { useEffect, useMemo, useState } from 'react';
         permissionsToday: perms.count ?? 0,
       });
 
-      // Build 7-day trend
+      // Build real 7-day trend using the school's local calendar.
       const week7Map = new Map<string, DayPoint>();
       for (let i = 0; i < 7; i++) {
-        const d = new Date(week7Start);
-        d.setDate(week7Start.getDate() + i);
-        const key = d.toISOString().slice(0, 10);
-        const label = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { weekday: 'short' }).format(d);
+        const key = shiftDateKey(week7ISO, i);
+        const dayDate = new Date(`${key}T12:00:00Z`);
+        const label = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
+          weekday: 'short', timeZone: 'Asia/Riyadh',
+        }).format(dayDate);
         week7Map.set(key, { day: label, حاضر: 0, متأخر: 0, غائب: 0 });
       }
       (weekAtt.data ?? []).forEach((r: any) => {
@@ -115,16 +177,12 @@ import { useEffect, useMemo, useState } from 'react';
       });
       setWeekTrend(Array.from(week7Map.values()));
 
-      // Build 30-day trend — group by week label for readability
+      // Build real 30-day trend.
       const month30Map = new Map<string, DayPoint>();
       for (let i = 0; i < 30; i++) {
-        const d = new Date(month30Start);
-        d.setDate(month30Start.getDate() + i);
-        const key = d.toISOString().slice(0, 10);
-        const day = d.getDate();
-        const month = d.getMonth() + 1;
-        const label = `${day}/${month}`;
-        month30Map.set(key, { day: label, حاضر: 0, متأخر: 0, غائب: 0 });
+        const key = shiftDateKey(month30ISO, i);
+        const [, month, day] = key.split('-');
+        month30Map.set(key, { day: `${Number(day)}/${Number(month)}`, حاضر: 0, متأخر: 0, غائب: 0 });
       }
       (monthAtt.data ?? []).forEach((r: any) => {
         const point = month30Map.get(r.date);
@@ -140,18 +198,43 @@ import { useEffect, useMemo, useState } from 'react';
           id: r.id,
           name: r.students?.full_name ?? '—',
           status: r.status,
-          time: new Date(r.recorded_at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
+          time: new Date(r.recorded_at).toLocaleTimeString('ar-SA', {
+            hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh',
+          }),
         })),
       );
 
-      const scanCounts = { duplicate: 0, permission_issued: 0, permission_used: 0, permission_returned: 0 };
+      const scanCounts = { ...EMPTY_SCAN_WEEK };
       (scans.data ?? []).forEach((r: any) => {
         if (r.kind in scanCounts) (scanCounts as any)[r.kind]++;
       });
       setScanWeek(scanCounts);
-
-      setLoading(false);
+      setLastUpdatedAt(new Date());
+    } catch {
+      if (requestId === loadRequest.current) {
+        setLoadError('تعذر الاتصال بمصدر البيانات. لم تُعرض أرقام بديلة أو افتراضية.');
+      }
+    } finally {
+      if (requestId === loadRequest.current) setLoading(false);
     }
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!schoolId) {
+      loadRequest.current += 1;
+      displayedSchoolId.current = null;
+      setStats(EMPTY_STATS);
+      setWeekTrend([]);
+      setMonthTrend([]);
+      setRecent([]);
+      setScanWeek(EMPTY_SCAN_WEEK);
+      setLoadError('هذا الحساب غير مرتبط بمدرسة؛ لم تُعرض أرقام افتراضية.');
+      setLoading(false);
+      return;
+    }
+    void loadAll();
+  }, [authLoading, schoolId, loadAll]);
 
     const totalToday = stats.presentToday + stats.lateToday + stats.absentToday;
     const attendanceRate = stats.students ? Math.round(((stats.presentToday + stats.lateToday) / stats.students) * 100) : 0;
@@ -173,15 +256,18 @@ import { useEffect, useMemo, useState } from 'react';
       { label: 'إجمالي الطلاب', value: stats.students, icon: Users, tone: 'from-brand to-primary', sub: `${stats.classes} فصل` },
       { label: 'حضور اليوم', value: stats.presentToday, icon: ClipboardCheck, tone: 'from-success to-brand', sub: `${attendanceRate}% من إجمالي الطلاب` },
       { label: 'استذانات اليوم', value: stats.permissionsToday, icon: FileSignature, tone: 'from-accent to-warning', sub: 'خروج مُصرَّح' },
-      { label: 'الكادر التعليمي', value: stats.teachers, icon: UserCog, tone: 'from-primary to-brand', sub: 'معلم نشط' },
+      { label: 'الكادر التعليمي', value: stats.teachers, icon: UserCog, tone: 'from-primary to-brand', sub: 'حسابات المعلمين المسجّلة' },
     ];
 
     const greet = (() => {
-      const h = now.getHours();
+      const h = Number(new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Riyadh',
+      }).format(now));
       if (h < 12) return 'صباح الخير';
       if (h < 18) return 'مساء الخير';
       return 'مساء النور';
     })();
+    const todayLabel = formatDate(new Date(`${riyadhDateKey(now)}T12:00:00+03:00`));
 
     const quickActions = isAdmin
       ? [
@@ -200,6 +286,32 @@ import { useEffect, useMemo, useState } from 'react';
 
     return (
       <div className="space-y-8">
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {!loadError && lastUpdatedAt && (
+            <span className="text-xs text-muted-foreground">
+              آخر تحديث {lastUpdatedAt.toLocaleTimeString('ar-SA', {
+                hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh',
+              })}
+            </span>
+          )}
+          <Button onClick={() => void loadAll()} disabled={loading || authLoading || !schoolId} variant="outline" className="gap-2">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            تحديث بيانات اللوحة
+          </Button>
+        </div>
+
+        {loadError && (
+          <Card className="flex flex-wrap items-center justify-between gap-3 border-destructive/30 bg-destructive/5 p-4 text-destructive">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+              <p className="text-sm font-medium">{loadError}</p>
+            </div>
+            <Button onClick={() => void loadAll()} disabled={loading || !schoolId} variant="outline" size="sm" className="gap-2">
+              <RefreshCw className="h-4 w-4" /> إعادة المحاولة
+            </Button>
+          </Card>
+        )}
+
         {/* Hero header */}
         <header className="relative overflow-hidden rounded-3xl bg-gradient-hero p-6 text-white shadow-elevated sm:p-8">
           <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white/10 blur-3xl animate-blob" />
@@ -214,7 +326,7 @@ import { useEffect, useMemo, useState } from 'react';
                 {greet}، <span className="text-gradient-brand">{user?.user_metadata?.full_name || user?.email?.split('@')[0]}</span>
               </h1>
               <p className="mt-2 max-w-xl text-sm text-white/80">
-                نظرة شاملة على حضور وأنشطة <strong>{settings?.school_name ?? 'مدرستك'}</strong> ليوم {formatDate(new Date())}.
+                نظرة شاملة على حضور وأنشطة <strong>{settings?.school_name ?? 'مدرستك'}</strong> ليوم {todayLabel}.
               </p>
             </div>
 
@@ -222,10 +334,10 @@ import { useEffect, useMemo, useState } from 'react';
               <div className="rounded-2xl glass-dark px-5 py-3 text-right shadow-soft">
                 <div className="flex items-center gap-2 text-xs text-white/70">
                   <CalendarDays className="h-3.5 w-3.5" />
-                  {formatDate(new Date())}
+                  {todayLabel}
                 </div>
                 <div className="mt-1 text-2xl font-extrabold tabular-nums">
-                  {now.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}
+                  {now.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' })}
                 </div>
               </div>
             </div>
@@ -235,21 +347,27 @@ import { useEffect, useMemo, useState } from 'react';
           <div className="relative mt-6 rounded-2xl bg-white/10 p-4 ring-1 ring-white/20 backdrop-blur">
             <div className="flex items-center justify-between text-sm">
               <span className="font-semibold">نسبة الحضور اليوم</span>
-              <span className="text-2xl font-extrabold tabular-nums">{attendanceRate}%</span>
+              <span className="text-2xl font-extrabold tabular-nums">{loadError ? '—' : `${attendanceRate}%`}</span>
             </div>
             <div className="mt-3 h-3 overflow-hidden rounded-full bg-white/15">
               <div
                 className="relative h-full rounded-full bg-gradient-to-l from-brand to-success transition-all duration-1000"
-                style={{ width: `${attendanceRate}%` }}
+                style={{ width: `${loadError ? 0 : attendanceRate}%` }}
               >
                 <div className="absolute inset-0 animate-shimmer rounded-full" />
               </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-3 text-xs text-white/70">
-              <span>✅ {stats.presentToday} حاضر</span>
-              <span>⏱ {stats.lateToday} متأخر</span>
-              <span>❌ {stats.absentToday} غائب</span>
-              <span>📋 {totalToday} مُسجَّل من {stats.students}</span>
+              {loadError ? (
+                <span>تعذر التحقق من سجلات الحضور حاليًا</span>
+              ) : (
+                <>
+                  <span>✅ {stats.presentToday} حاضر</span>
+                  <span>⏱ {stats.lateToday} متأخر</span>
+                  <span>❌ {stats.absentToday} غائب</span>
+                  <span>📋 {totalToday} مُسجَّل من {stats.students}</span>
+                </>
+              )}
             </div>
           </div>
         </header>
@@ -266,9 +384,9 @@ import { useEffect, useMemo, useState } from 'react';
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">{c.label}</p>
                   <p className="mt-2 text-4xl font-extrabold tabular-nums tracking-tight">
-                    {loading ? <Loader2 className="h-8 w-8 animate-spin text-primary" /> : c.value.toLocaleString('ar-SA')}
+                    {loading ? <Loader2 className="h-8 w-8 animate-spin text-primary" /> : loadError ? '—' : c.value.toLocaleString('ar-SA')}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">{c.sub}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{loadError ? '—' : c.sub}</p>
                 </div>
                 <div className={`rounded-xl bg-gradient-to-br ${c.tone} p-3 text-white shadow-soft transition-transform group-hover:scale-110`}>
                   <c.icon className="h-6 w-6" />
@@ -317,7 +435,7 @@ import { useEffect, useMemo, useState } from 'react';
                   <s.icon className="h-6 w-6" />
                   <div>
                     <p className="text-xs opacity-80">{s.label}</p>
-                    <p className="text-2xl font-extrabold tabular-nums">{s.value.toLocaleString('ar-SA')}</p>
+                    <p className="text-2xl font-extrabold tabular-nums">{loadError ? '—' : s.value.toLocaleString('ar-SA')}</p>
                   </div>
                 </div>
               ))}
@@ -332,7 +450,9 @@ import { useEffect, useMemo, useState } from 'react';
               <div>
                 <h3 className="font-bold">اتجاه الحضور</h3>
                 <p className="text-xs text-muted-foreground">
-                  {trendPeriod === 'week' ? 'آخر 7 أيام' : `آخر 30 يوماً — متوسط الحضور ${monthSummary}%`}
+                  {loadError
+                    ? 'يتطلب عرض الاتجاه اتصالًا ناجحًا بسجلات المدرسة'
+                    : trendPeriod === 'week' ? 'آخر 7 أيام' : `آخر 30 يوماً — متوسط الحضور ${monthSummary}%`}
                 </p>
               </div>
               <div className="flex gap-1 rounded-lg border border-border/60 p-1">
@@ -351,7 +471,11 @@ import { useEffect, useMemo, useState } from 'react';
               </div>
             </div>
             <div className="h-72 w-full" dir="ltr">
-              <ResponsiveContainer width="100%" height="100%">
+              {loadError ? (
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground" dir="rtl">
+                  لا يمكن عرض الرسم قبل تحميل سجلات المدرسة بنجاح.
+                </div>
+              ) : <ResponsiveContainer width="100%" height="100%">
                 {trendPeriod === 'week' ? (
                   <AreaChart data={trendData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                     <defs>
@@ -388,14 +512,18 @@ import { useEffect, useMemo, useState } from 'react';
                     <Bar dataKey="غائب" stackId="a" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 )}
-              </ResponsiveContainer>
+              </ResponsiveContainer>}
             </div>
           </Card>
 
           <Card className="p-6 shadow-soft">
             <h3 className="mb-1 font-bold">توزيع حضور اليوم</h3>
-            <p className="text-xs text-muted-foreground">إجمالي {totalToday} مُسجَّل</p>
-            {totalToday === 0 ? (
+            <p className="text-xs text-muted-foreground">إجمالي {loadError ? '—' : totalToday} مُسجَّل</p>
+            {loadError ? (
+              <div className="flex h-56 items-center justify-center text-center text-sm text-muted-foreground">
+                لا يمكن عرض التوزيع قبل تحميل سجلات اليوم.
+              </div>
+            ) : totalToday === 0 ? (
               <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">لا توجد بيانات بعد</div>
             ) : (
               <div className="mt-2 h-56" dir="ltr">
@@ -426,10 +554,14 @@ import { useEffect, useMemo, useState } from 'react';
               </Button>
             </div>
             <div className="divide-y divide-border">
-              {recent.length === 0 && (
+              {loadError ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  تعذر تحميل سجل الحضور؛ أعد المحاولة لعرض البيانات الحقيقية.
+                </div>
+              ) : recent.length === 0 && (
                 <div className="py-10 text-center text-sm text-muted-foreground">لا توجد سجلات لهذا اليوم بعد</div>
               )}
-              {recent.map((r) => (
+              {!loadError && recent.map((r) => (
                 <div key={r.id} className="flex items-center justify-between gap-3 py-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand/15 text-primary text-xs font-bold">

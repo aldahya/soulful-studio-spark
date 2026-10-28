@@ -26,6 +26,13 @@ interface DupContext {
   studentId: string; studentName: string; studentNumber: string; existingStatus: AttendanceStatus;
 }
 
+function normalizeStudentIdentifier(value: string) {
+  return value.trim().replace(/[٠-٩۰-۹]/g, (digit) => {
+    const code = digit.charCodeAt(0);
+    return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
+  });
+}
+
 export default function Scan() {
   const { user, isAdmin, teacherId, teacherStage, schoolId } = useAuth();
   const [code, setCode] = useState('');
@@ -75,6 +82,13 @@ export default function Scan() {
 
   async function processCode(trimmed: string) {
     if (processing.current) return;
+    const identifier = normalizeStudentIdentifier(trimmed);
+    if (!schoolId) {
+      pushLog(false, 'تعذر البحث: الحساب غير مرتبط بمدرسة');
+      toast.error('تعذر تحديد المدرسة المرتبطة بهذا الحساب');
+      beepError(); flashErr();
+      return;
+    }
     const cfg = settings ?? ({ ...DEFAULT_SETTINGS } as SchoolSettings);
     const dupWindowMs = (cfg.duplicate_window_seconds ?? 20) * 1000;
     const permWindowMs = (cfg.permission_window_minutes ?? 5) * 60 * 1000;
@@ -82,21 +96,48 @@ export default function Scan() {
 
     // حماية فورية ضد المسح المكرر السريع لنفس الباركود
     const now = Date.now();
-    if (dupEnabled && lastScan.current.code === trimmed && now - lastScan.current.at < dupWindowMs) {
+    if (dupEnabled && lastScan.current.code === identifier && now - lastScan.current.at < dupWindowMs) {
       pushLog(false, `تجاهل مسح مكرر سريع: ${trimmed}`, 'تكرار');
       beepDuplicate();
       return;
     }
-    lastScan.current = { code: trimmed, at: now };
+    lastScan.current = { code: identifier, at: now };
     processing.current = true;
     try {
-      const { data: student, error } = await supabase
-        .from('students').select('id, full_name, student_number, stage, parent_phone, classes(name)')
-        .eq('barcode', trimmed).maybeSingle();
+      const studentSelection = 'id, full_name, student_number, stage, parent_phone, classes(name)';
+      const { data: barcodeStudent, error: barcodeError } = await (supabase
+        .from('students').select(studentSelection)
+        .eq('school_id', schoolId)
+        .eq('barcode', identifier.toUpperCase())
+        .maybeSingle());
 
-      if (error || !student) {
-        pushLog(false, `باركود غير معروف: ${trimmed}`);
-        toast.error('باركود غير معروف');
+      if (barcodeError) {
+        pushLog(false, `تعذر البحث عن الطالب: ${barcodeError.message}`);
+        toast.error('تعذر البحث في سجلات المدرسة');
+        beepError(); flashErr();
+        return;
+      }
+
+      let student = barcodeStudent;
+      if (!student) {
+        const { data: numberStudent, error: numberError } = await (supabase
+          .from('students').select(studentSelection)
+          .eq('school_id', schoolId)
+          .eq('student_number', identifier)
+          .maybeSingle());
+
+        if (numberError) {
+          pushLog(false, `تعذر البحث عن الطالب: ${numberError.message}`);
+          toast.error('تعذر البحث في سجلات المدرسة');
+          beepError(); flashErr();
+          return;
+        }
+        student = numberStudent;
+      }
+
+      if (!student) {
+        pushLog(false, `لم يوجد طالب بهذا الرقم في سجلات المدرسة: ${identifier}`);
+        toast.error('رقم الطالب غير موجود في سجلات هذه المدرسة');
         beepError(); flashErr();
         return;
       }
@@ -225,6 +266,10 @@ export default function Scan() {
         toast.success(`${STATUS_LABELS[finalStatus]}: ${student.full_name}`);
         beepSuccess(); flashOk();
       }
+    } catch {
+      pushLog(false, 'تعذر الاتصال بسجلات الطلاب أو الحضور');
+      toast.error('تعذر الاتصال بقاعدة البيانات؛ لم يتم تسجيل العملية');
+      beepError(); flashErr();
     } finally {
       processing.current = false;
     }
@@ -346,7 +391,7 @@ export default function Scan() {
                     ref={inputRef}
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
-                    placeholder="ALD-..."
+                    placeholder="رقم الطالب أو امسح الباركود"
                     className="h-16 pr-14 text-center text-xl font-mono tracking-widest shadow-soft"
                     dir="ltr"
                     autoFocus
@@ -360,7 +405,7 @@ export default function Scan() {
           </Tabs>
           <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
             <ArrowLeftRight className="h-3.5 w-3.5" />
-            مسح أول = حضور · مسح ثانٍ على طالب لديه استذان = خروج · مسح ثالث = عودة
+            أدخل رقم الطالب أو امسح الباركود · المسح الأول حضور · المسح التالي يستأذن/يسجل الخروج حسب الحالة
           </p>
         </Card>
 
