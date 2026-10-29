@@ -13,6 +13,7 @@ import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useSchoolSettings } from '@/lib/school';
 import { useAuth } from '@/hooks/useAuth';
+import { withActiveStudentFilter } from '@/lib/student-archive';
 import { openReportPdf, openMonthlySummaryPdf, type ReportRow, type MonthlyStudentSummary } from '@/lib/reportPdf';
 import { nowTimeLabel } from '@/lib/feedback';
 import { buildNotifyMessage, statusToKind, makeSentKey, wasSent, markSent, type NotifyKind } from '@/lib/whatsappTemplates';
@@ -365,12 +366,16 @@ export default function Reports() {
       const endDate = new Date(start); endDate.setMonth(endDate.getMonth() + 1);
       const end = endDate.toISOString().slice(0, 10);
 
-      let studentQuery = supabase.from('students').select('id, full_name, student_number, parent_phone, stage').eq('school_id', schoolId ?? '').is('archived_at', null).order('full_name').limit(2000);
-      if (!isAdmin && teacherStage) studentQuery = studentQuery.eq('stage', teacherStage);
-      // فلترة لطالب محدد إن اختير
-      if (monthlyStudent !== 'all') studentQuery = studentQuery.eq('id', monthlyStudent);
-
-      const { data: studs } = await studentQuery;
+      const { data: studs } = await withActiveStudentFilter((filterArchived) => {
+        let studentQuery = supabase
+          .from('students')
+          .select('id, full_name, student_number, parent_phone, stage')
+          .eq('school_id', schoolId ?? '');
+        if (filterArchived) studentQuery = studentQuery.is('archived_at', null);
+        if (!isAdmin && teacherStage) studentQuery = studentQuery.eq('stage', teacherStage);
+        if (monthlyStudent !== 'all') studentQuery = studentQuery.eq('id', monthlyStudent);
+        return studentQuery.order('full_name').limit(2000);
+      });
       if (!studs || !studs.length) { toast.error('لا يوجد طلاب'); return; }
 
       const [{ data: records }, { data: perms }] = await Promise.all([

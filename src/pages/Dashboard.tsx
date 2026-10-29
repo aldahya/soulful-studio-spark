@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
   import { useSchoolSettings } from '@/lib/school';
 import { formatDate, STATUS_LABELS } from '@/lib/i18n';
   import { useAuth } from '@/hooks/useAuth';
+import { withActiveStudentFilter } from '@/lib/student-archive';
   import {
     ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
     PieChart, Pie, Cell, Legend,
@@ -99,7 +100,11 @@ const EMPTY_SCAN_WEEK = { duplicate: 0, permission_issued: 0, permission_used: 0
 
     try {
       const [s, c, t, todayAtt, weekAtt, monthAtt, perms, recentAtt, scans] = await Promise.all([
-        supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).is('archived_at', null),
+        withActiveStudentFilter((filterArchived) => {
+          let query = supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId);
+          if (filterArchived) query = query.is('archived_at', null);
+          return query;
+        }),
         supabase.from('classes').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
         supabase.from('teachers').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
         supabase.from('attendance_full_view').select('status').eq('school_id', schoolId).eq('date', today),

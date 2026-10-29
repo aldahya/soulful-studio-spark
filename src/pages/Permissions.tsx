@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { useSchoolSettings } from '@/lib/school';
 import CameraScanner from '@/components/CameraScanner';
 import { createAdminPermissionRequest } from '@/lib/adminPermissionRequests';
+import { withActiveStudentFilter } from '@/lib/student-archive';
 
 const REASONS = [
   'مراجعة طبية',
@@ -92,16 +93,16 @@ export default function Permissions() {
         if (!cancelled) setSuggestionLoading(false);
         return;
       }
-      let query = (supabase as any)
-        .from('students')
-        .select('id, full_name, student_number, barcode')
-        .eq('school_id', schoolId)
-        .is('archived_at', null)
-        .ilike('full_name', `${safeTerm}%`);
-
-      if (!isAdmin && teacherStage) query = query.eq('stage', teacherStage);
-
-      const { data, error } = await query.order('full_name', { ascending: true }).limit(8);
+      const { data, error } = await withActiveStudentFilter((filterArchived) => {
+        let query = (supabase as any)
+          .from('students')
+          .select('id, full_name, student_number, barcode')
+          .eq('school_id', schoolId);
+        if (filterArchived) query = query.is('archived_at', null);
+        query = query.ilike('full_name', `${safeTerm}%`);
+        if (!isAdmin && teacherStage) query = query.eq('stage', teacherStage);
+        return query.order('full_name', { ascending: true }).limit(8);
+      });
       if (cancelled) return;
       setStudentSuggestions((data ?? []) as StudentSuggestion[]);
       setSuggestionError(Boolean(error));
@@ -150,10 +151,11 @@ export default function Permissions() {
       }
       let targetStudent = student;
       if (!targetStudent) {
-        const { data, error } = await supabase
-          .from('students').select('id, full_name, student_number, barcode')
-          .is('archived_at', null)
-          .eq('barcode', trimmed).maybeSingle();
+        const { data, error } = await withActiveStudentFilter((filterArchived) => {
+          let query = supabase.from('students').select('id, full_name, student_number, barcode');
+          if (filterArchived) query = query.is('archived_at', null);
+          return query.eq('barcode', trimmed).maybeSingle();
+        });
         if (error) { toast.error(error.message); return; }
         if (!data) { toast.error('باركود غير معروف'); return; }
         targetStudent = data;

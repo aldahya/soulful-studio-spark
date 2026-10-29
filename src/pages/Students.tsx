@@ -17,6 +17,7 @@ import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, U
   import * as XLSX from 'xlsx';
   import { downloadBarcodeSVG, printBarcodes, stageLabel } from '@/lib/barcode';
   import { useSchoolSettings } from '@/lib/school';
+import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/student-archive';
 
   interface Student {
     id: string;
@@ -45,6 +46,7 @@ import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, U
     const [stageFilter, setStageFilter] = useState<string>('all');
     const [classFilter, setClassFilter] = useState<string>('all');
     const [showArchived, setShowArchived] = useState(false);
+    const [archiveColumnAvailable, setArchiveColumnAvailable] = useState<boolean | null>(null);
     const [alertOnly, setAlertOnly] = useState(false);
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState(false);
@@ -71,25 +73,48 @@ import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, U
       const monthStartISO = monthStart.toISOString().slice(0, 10);
       const todayISO = new Date().toISOString().slice(0, 10);
 
-      let studentQuery = (supabase as any).from('students')
-        .select('*, classes(name)')
-        .eq('school_id', schoolId)
-        .order('full_name')
-        .limit(2000);
-      studentQuery = showArchived
-        ? studentQuery.not('archived_at', 'is', null)
-        : studentQuery.is('archived_at', null);
+      const buildStudentQuery = (filterArchived: boolean) => {
+        let query = (supabase as any).from('students')
+          .select('*, classes(name)')
+          .eq('school_id', schoolId)
+          .order('full_name')
+          .limit(2000);
+        if (filterArchived) {
+          query = showArchived
+            ? query.not('archived_at', 'is', null)
+            : query.is('archived_at', null);
+        }
+        return query;
+      };
+      const studentRequest = showArchived
+        ? (async () => {
+            const result = await buildStudentQuery(true);
+            return { ...result, archiveColumnAvailable: !isArchiveColumnUnavailable(result.error) };
+          })()
+        : archiveColumnAvailable === false
+          ? buildStudentQuery(false).then((result: any) => ({ ...result, archiveColumnAvailable: false }))
+          : withActiveStudentFilter((filterArchived) => buildStudentQuery(filterArchived));
 
       const [s, c, monthAtt] = await Promise.all([
-        studentQuery,
+        studentRequest,
         supabase.from('classes').select('id, name, stage').eq('school_id', schoolId).order('name'),
         supabase.from('attendance_records').select('student_id, status')
           .eq('school_id', schoolId).gte('date', monthStartISO).lte('date', todayISO),
       ]);
+      setArchiveColumnAvailable(s.archiveColumnAvailable);
+      if (!s.archiveColumnAvailable && showArchived) {
+        toast.error('تعذر فتح قائمة المؤرشفين؛ قاعدة البيانات لا تتعرف على archived_at. تحقق من ترحيل الأرشفة ثم حدّث الصفحة.');
+        setShowArchived(false);
+        setLoading(false);
+        return;
+      }
       if (s.error) {
         toast.error(`تعذر تحميل قائمة الطلاب: ${s.error.message}`);
         setLoading(false);
         return;
+      }
+      if (!s.archiveColumnAvailable) {
+        toast.warning('تم تحميل الطلاب، لكن الأرشفة متوقفة لأن قاعدة البيانات لا تتعرف على archived_at. تحقق من ترحيل 00005.');
       }
       setStudents((s.data ?? []) as Student[]);
       if (c.error) toast.error(`تعذر تحميل الفصول: ${c.error.message}`);
@@ -157,6 +182,10 @@ import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, U
     }
 
     async function archiveStudent(s: Student) {
+      if (archiveColumnAvailable !== true) {
+        toast.error('الأرشفة غير متاحة حتى تتعرف قاعدة البيانات على archived_at.');
+        return;
+      }
       if (!confirm(`أرشفة الطالب ${s.full_name}؟ سيبقى سجل الحضور والتقارير محفوظًا.`)) return;
       const { data, error } = await (supabase as any).from('students')
         .update({ archived_at: new Date().toISOString() })
@@ -172,6 +201,10 @@ import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, U
     }
 
     async function restoreStudent(s: Student) {
+      if (archiveColumnAvailable !== true) {
+        toast.error('استعادة الأرشيف غير متاحة حتى تتعرف قاعدة البيانات على archived_at.');
+        return;
+      }
       const { data, error } = await (supabase as any).from('students')
         .update({ archived_at: null })
         .eq('id', s.id)
@@ -351,7 +384,13 @@ import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, U
           </div>
           {isAdmin && (
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setShowArchived((value) => !value)} className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowArchived((value) => !value)}
+                disabled={archiveColumnAvailable !== true}
+                title={archiveColumnAvailable === false ? 'تحقق من تطبيق ترحيل 00005' : undefined}
+                className="gap-2"
+              >
                 {showArchived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
                 {showArchived ? 'عرض الطلاب الحاليين' : 'عرض المؤرشفين'}
               </Button>
@@ -365,6 +404,13 @@ import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, U
             </div>
           )}
         </header>
+
+        {archiveColumnAvailable === false && (
+          <div role="alert" className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 text-sm text-muted-foreground">
+            تعرض القائمة الطلاب بدون فلتر الأرشفة، لكن الأرشفة والاستعادة متوقفتان حتى يتعرف Supabase على العمود
+            {' '}<code dir="ltr">archived_at</code>. تحقق من تطبيق ترحيل 00005 على قاعدة الموقع.
+          </div>
+        )}
 
         {alertCount > 0 && (
           <button
@@ -485,11 +531,11 @@ import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, U
                           {isAdmin && <>
                             <Button variant="ghost" size="icon" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
                             {showArchived ? (
-                              <Button variant="ghost" size="icon" title="استعادة الطالب" onClick={() => restoreStudent(s)}>
+                              <Button variant="ghost" size="icon" title="استعادة الطالب" disabled={archiveColumnAvailable !== true} onClick={() => restoreStudent(s)}>
                                 <ArchiveRestore className="h-4 w-4 text-primary" />
                               </Button>
                             ) : (
-                              <Button variant="ghost" size="icon" title="أرشفة الطالب" onClick={() => archiveStudent(s)}>
+                              <Button variant="ghost" size="icon" title="أرشفة الطالب" disabled={archiveColumnAvailable !== true} onClick={() => archiveStudent(s)}>
                                 <Archive className="h-4 w-4 text-warning" />
                               </Button>
                             )}

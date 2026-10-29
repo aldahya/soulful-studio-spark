@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CheckCircle2, Loader2, School, ClipboardList, Phone, Search, Zap, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { SCHOOL_LOGOS } from '@/lib/school';
+import { withActiveStudentFilter } from '@/lib/student-archive';
 
 const REASONS = [
   'مراجعة طبية',
@@ -114,17 +115,15 @@ export default function ParentRequest() {
     try {
       const schoolId = SCHOOL_IDS[schoolSlug];
       // نبحث بـ school_id لأن school_slug في جدول الطلاب قد يكون فارغاً
-      let query = supabase
-        .from('students')
-        .select('student_number, full_name, parent_phone')
-        .eq('parent_phone', clean);
-      query = query.is('archived_at', null);
-
-      if (schoolId) {
-        query = query.eq('school_id', schoolId);
-      }
-
-      const { data, error } = await query;
+      const { data, error } = await withActiveStudentFilter((filterArchived) => {
+        let query = supabase
+          .from('students')
+          .select('student_number, full_name, parent_phone')
+          .eq('parent_phone', clean);
+        if (schoolId) query = query.eq('school_id', schoolId);
+        if (filterArchived) query = query.is('archived_at', null);
+        return query;
+      });
 
       if (error) console.error('lookupByPhone error:', error);
 

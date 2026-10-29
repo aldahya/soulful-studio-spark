@@ -21,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { beepSuccess, beepError, beepDuplicate, autoStatusByTime } from '@/lib/feedback';
 import { DEFAULT_SETTINGS, type SchoolSettings } from '@/lib/school';
 import { createAdminPermissionRequest } from '@/lib/adminPermissionRequests';
+import { withActiveStudentFilter } from '@/lib/student-archive';
 
 interface LogEntry { time: string; ok: boolean; text: string; tag?: string }
 interface DupContext {
@@ -95,16 +96,16 @@ export default function Scan() {
     setSuggestionError(false);
     const timer = window.setTimeout(async () => {
       const safeTerm = searchTerm.replace(/[%_]/g, '').replace(/\s+/g, ' ').trim();
-      let query = supabase
-        .from('students')
-        .select('id, full_name, student_number, stage, classes(name)')
-        .eq('school_id', schoolId)
-        .is('archived_at', null)
-        .ilike('full_name', `${safeTerm}%`);
-
-      if (!isAdmin && teacherStage) query = query.eq('stage', teacherStage);
-
-      const { data, error } = await query.order('full_name', { ascending: true }).limit(8);
+      const { data, error } = await withActiveStudentFilter((filterArchived) => {
+        let query = supabase
+          .from('students')
+          .select('id, full_name, student_number, stage, classes(name)')
+          .eq('school_id', schoolId);
+        if (filterArchived) query = query.is('archived_at', null);
+        query = query.ilike('full_name', `${safeTerm}%`);
+        if (!isAdmin && teacherStage) query = query.eq('stage', teacherStage);
+        return query.order('full_name', { ascending: true }).limit(8);
+      });
       if (cancelled) return;
       setSuggestions((data ?? []) as StudentSuggestion[]);
       setSuggestionError(Boolean(error));
@@ -211,12 +212,11 @@ export default function Scan() {
       const studentSelection = 'id, full_name, student_number, stage, parent_phone, classes(name)';
       let student: ScanStudent | null = null;
       if (selectedStudentId) {
-        const { data, error } = await supabase
-          .from('students').select(studentSelection)
-          .eq('school_id', schoolId)
-          .is('archived_at', null)
-          .eq('id', selectedStudentId)
-          .maybeSingle();
+        const { data, error } = await withActiveStudentFilter((filterArchived) => {
+          let query = supabase.from('students').select(studentSelection).eq('school_id', schoolId);
+          if (filterArchived) query = query.is('archived_at', null);
+          return query.eq('id', selectedStudentId).maybeSingle();
+        });
 
         if (error) {
           pushLog(false, `تعذر البحث عن الطالب: ${error.message}`);
@@ -226,12 +226,11 @@ export default function Scan() {
         }
         student = data as ScanStudent | null;
       } else {
-        const { data: barcodeStudent, error: barcodeError } = await supabase
-          .from('students').select(studentSelection)
-          .eq('school_id', schoolId)
-          .is('archived_at', null)
-          .eq('barcode', identifier.toUpperCase())
-          .maybeSingle();
+        const { data: barcodeStudent, error: barcodeError } = await withActiveStudentFilter((filterArchived) => {
+          let query = supabase.from('students').select(studentSelection).eq('school_id', schoolId);
+          if (filterArchived) query = query.is('archived_at', null);
+          return query.eq('barcode', identifier.toUpperCase()).maybeSingle();
+        });
 
         if (barcodeError) {
           pushLog(false, `تعذر البحث عن الطالب: ${barcodeError.message}`);
@@ -242,12 +241,11 @@ export default function Scan() {
 
         student = barcodeStudent as ScanStudent | null;
         if (!student) {
-          const { data: numberStudent, error: numberError } = await supabase
-            .from('students').select(studentSelection)
-            .eq('school_id', schoolId)
-            .is('archived_at', null)
-            .eq('student_number', identifier)
-            .maybeSingle();
+          const { data: numberStudent, error: numberError } = await withActiveStudentFilter((filterArchived) => {
+            let query = supabase.from('students').select(studentSelection).eq('school_id', schoolId);
+            if (filterArchived) query = query.is('archived_at', null);
+            return query.eq('student_number', identifier).maybeSingle();
+          });
 
           if (numberError) {
             pushLog(false, `تعذر البحث عن الطالب: ${numberError.message}`);
