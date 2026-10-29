@@ -1,5 +1,6 @@
 // لوحة إدارة طلبات الاستئذان والاستلام السريع — تبويبان منفصلان
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useSchoolSettings } from '@/lib/school';
@@ -11,10 +12,14 @@ import { Input } from '@/components/ui/input';
 import {
   Bell, CheckCircle2, XCircle, Volume2, Loader2, RefreshCw,
   Clock, User, ClipboardList, Search, VolumeX, MessageCircle, Zap,
-  FileSpreadsheet, FileText, X,
+  FileSpreadsheet, FileText, FileSignature, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { announceStudent, isTTSSupported, getAvailableArabicVoices } from '@/lib/tts';
+import {
+  approveAdminPermissionRequest,
+  rejectAdminPermissionRequest,
+} from '@/lib/adminPermissionRequests';
 import {
   exportParentRequestsExcel,
   isWithinSaudiRequestDateRange,
@@ -42,6 +47,9 @@ interface ParentRequest {
   pickup_location: string | null;
   receiver_id_number: string | null;
   receiver_relationship: string | null;
+  source: 'parent' | 'administration';
+  student_id: string | null;
+  permission_id: string | null;
 }
 
 const STATUS_MAP = {
@@ -49,6 +57,18 @@ const STATUS_MAP = {
   approved: { label: 'مؤكد',         cls: 'bg-green-100 text-green-800 border-green-200' },
   rejected: { label: 'مرفوض',        cls: 'bg-red-100   text-red-800   border-red-200'   },
 } as const;
+
+function requestStatus(req: ParentRequest) {
+  if (req.source === 'administration' && req.status === 'approved') {
+    return { label: 'خرج', cls: 'bg-green-100 text-green-800 border-green-200' };
+  }
+  return STATUS_MAP[req.status];
+}
+
+function firstRequestResult(data: unknown): ParentRequest | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  return row && typeof row === 'object' ? row as ParentRequest : null;
+}
 
 function buildWhatsAppMessage(opts: {
   schoolName: string; studentName: string; reason: string; exitTime: string;
@@ -118,9 +138,14 @@ function RequestCard({
                 #{req.student_number}
               </span>
             )}
-            <Badge variant="outline" className={STATUS_MAP[req.status].cls}>
-              {STATUS_MAP[req.status].label}
+            <Badge variant="outline" className={requestStatus(req).cls}>
+              {requestStatus(req).label}
             </Badge>
+            {req.source === 'administration' && (
+              <Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200 text-xs">
+                من الإدارة
+              </Badge>
+            )}
             {req.announced && (
               <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
                 <Volume2 className="h-3 w-3 ml-1" /> نودي عليه
@@ -258,6 +283,7 @@ function RequestCard({
 
 export default function ParentRequests() {
   const { user, school } = useAuth();
+  const [searchParams] = useSearchParams();
   const settings   = useSchoolSettings();
   const schoolSlug = school?.slug ?? localStorage.getItem('school_slug') ?? 'dahya-boys';
   const schoolName = settings?.school_name ?? 'مدارس الضاحية الأهلية';
@@ -269,12 +295,21 @@ export default function ParentRequests() {
   const [approving, setApproving]   = useState<Set<string>>(() => new Set());
   const [rejecting, setRejecting]   = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
-  const [typeTab, setTypeTab]       = useState<'permission' | 'pickup' | 'all'>('permission');
+  const [typeTab, setTypeTab]       = useState<'permission' | 'admin_permission' | 'pickup' | 'all'>(
+    searchParams.get('source') === 'administration' ? 'admin_permission' : 'permission',
+  );
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const ttsSupported = isTTSSupported();
   const channelRef   = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const invalidDateRange = Boolean(fromDate && toDate && fromDate > toDate);
+
+  useEffect(() => {
+    if (searchParams.get('source') === 'administration') {
+      setTypeTab('admin_permission');
+      setStatusFilter('pending');
+    }
+  }, [searchParams]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -336,24 +371,32 @@ export default function ParentRequests() {
     try {
       const approvedAt   = new Date().toISOString();
       const approverName = user.email ?? 'موظف';
-      const { data, error } = await (supabase as any)
-        .from('parent_requests')
-        .update({ status: 'approved', approved_by: user.id, approved_at: approvedAt, approver_name: approverName })
-        .eq('id', req.id)
-        .eq('status', 'pending')
-        .select('*')
-        .maybeSingle();
+      const mutation = req.source === 'administration'
+        ? await approveAdminPermissionRequest(req.id)
+        : await (supabase as any)
+          .from('parent_requests')
+          .update({ status: 'approved', approved_by: user.id, approved_at: approvedAt, approver_name: approverName })
+          .eq('id', req.id)
+          .eq('status', 'pending')
+          .select('*')
+          .maybeSingle();
+      const { data, error } = mutation;
       if (error) { toast.error(error.message); return; }
-      if (!data) {
+      const updatedRequest = firstRequestResult(data);
+      if (!updatedRequest) {
         await load();
         toast.error('لم يتغير الطلب؛ تم تحديث القائمة للتحقق من حالته الحالية');
         return;
       }
-      const approvedRequest = data as ParentRequest;
+      const approvedRequest = updatedRequest;
       setRows((prev) => prev.map((row) => row.id === req.id ? approvedRequest : row));
-      toast.success(`تم تأكيد طلب ${req.student_name} ونقله إلى «مؤكدة»`, {
+      toast.success(
+        req.source === 'administration'
+          ? `تم تسجيل خروج ${req.student_name}`
+          : `تم تأكيد طلب ${req.student_name} ونقله إلى «مؤكدة»`,
+        {
         duration: 7000,
-        action: { label: 'عرض المؤكدة', onClick: () => setStatusFilter('approved') },
+        action: { label: req.source === 'administration' ? 'عرض الخارجين' : 'عرض المؤكدة', onClick: () => setStatusFilter('approved') },
       });
       if (announceAfterApproval) await announceReq(approvedRequest);
     } finally {
@@ -368,21 +411,27 @@ export default function ParentRequests() {
   async function reject(req: ParentRequest) {
     setRejecting((current) => new Set(current).add(req.id));
     try {
-      const { data, error } = await (supabase as any)
-        .from('parent_requests')
-        .update({ status: 'rejected' })
-        .eq('id', req.id)
-        .eq('status', 'pending')
-        .select('*')
-        .maybeSingle();
+      const mutation = req.source === 'administration'
+        ? await rejectAdminPermissionRequest(req.id)
+        : await (supabase as any)
+          .from('parent_requests')
+          .update({ status: 'rejected' })
+          .eq('id', req.id)
+          .eq('status', 'pending')
+          .select('*')
+          .maybeSingle();
+      const { data, error } = mutation;
       if (error) { toast.error(error.message); return; }
-      if (!data) {
+      const updatedRequest = firstRequestResult(data);
+      if (!updatedRequest) {
         await load();
         toast.error('لم يتغير الطلب؛ تم تحديث القائمة للتحقق من حالته الحالية');
         return;
       }
-      setRows((prev) => prev.map((row) => row.id === req.id ? data as ParentRequest : row));
-      toast.info('تم رفض الطلب ونقله إلى «مرفوضة»');
+      setRows((prev) => prev.map((row) => row.id === req.id ? updatedRequest : row));
+      toast.info(req.source === 'administration'
+        ? 'تم رفض الاستئذان؛ لم يُسجل خروج للطالب'
+        : 'تم رفض الطلب ونقله إلى «مرفوضة»');
     } finally {
       setRejecting((current) => {
         const next = new Set(current);
@@ -448,7 +497,8 @@ export default function ParentRequests() {
   const filtered = rows.filter((r) => {
     const matchType =
       typeTab === 'all' ||
-      (typeTab === 'permission' && (r.request_type === 'permission' || r.request_type == null)) ||
+      (typeTab === 'permission' && r.source !== 'administration' && (r.request_type === 'permission' || r.request_type == null)) ||
+      (typeTab === 'admin_permission' && r.source === 'administration') ||
       (typeTab === 'pickup'     && r.request_type === 'pickup');
     const matchStatus = statusFilter === 'all' || r.status === statusFilter;
     const q = search.toLowerCase();
@@ -457,10 +507,12 @@ export default function ParentRequests() {
     return matchType && matchStatus && matchSearch && matchDate;
   });
 
-  const pendingPermission = rows.filter((r) => r.status === 'pending' && (r.request_type === 'permission' || r.request_type == null)).length;
+  const pendingPermission = rows.filter((r) => r.status === 'pending' && r.source !== 'administration' && (r.request_type === 'permission' || r.request_type == null)).length;
+  const pendingAdminPermission = rows.filter((r) => r.status === 'pending' && r.source === 'administration').length;
   const pendingPickup     = rows.filter((r) => r.status === 'pending' && r.request_type === 'pickup').length;
-  const typeFilterLabel = typeTab === 'permission' ? 'الاستئذان' : typeTab === 'pickup' ? 'الاستلام السريع' : 'كل الأنواع';
-  const statusFilterLabel = statusFilter === 'pending' ? 'قيد المراجعة' : statusFilter === 'approved' ? 'مؤكدة' : statusFilter === 'rejected' ? 'مرفوضة' : 'كل الحالات';
+  const totalPending = pendingPermission + pendingAdminPermission + pendingPickup;
+  const typeFilterLabel = typeTab === 'permission' ? 'استئذان أولياء الأمور' : typeTab === 'admin_permission' ? 'استئذان الإدارة' : typeTab === 'pickup' ? 'الاستلام السريع' : 'كل الأنواع';
+  const statusFilterLabel = statusFilter === 'pending' ? 'قيد المراجعة' : statusFilter === 'approved' && typeTab === 'admin_permission' ? 'خرج' : statusFilter === 'approved' ? 'مؤكدة' : statusFilter === 'rejected' ? 'مرفوضة' : 'كل الحالات';
   const exportFilterSummary = [
     `النوع: ${typeFilterLabel}`,
     `الحالة: ${statusFilterLabel}`,
@@ -503,9 +555,9 @@ export default function ParentRequests() {
           <h1 className="text-3xl font-extrabold flex items-center gap-2">
             <Bell className="h-7 w-7 text-primary" />
             طلبات أولياء الأمور
-            {(pendingPermission + pendingPickup) > 0 && (
+            {totalPending > 0 && (
               <span className="inline-flex items-center justify-center min-w-[24px] h-6 rounded-full bg-red-500 text-white text-xs font-bold px-1.5 animate-pulse">
-                {pendingPermission + pendingPickup}
+                {totalPending}
               </span>
             )}
           </h1>
@@ -517,12 +569,13 @@ export default function ParentRequests() {
         </Button>
       </header>
 
-      {/* تبويبا النوع */}
-      <div className="flex gap-1 border-b border-border pb-0">
+      {/* أقسام الطلبات */}
+      <div className="flex flex-wrap gap-1 border-b border-border pb-0">
         {([
-          { key: 'permission', label: 'طلبات الاستئذان',   icon: ClipboardList, count: pendingPermission, active: 'border-primary text-primary bg-primary/5' },
-          { key: 'pickup',     label: 'الاستلام السريع',   icon: Zap,           count: pendingPickup,     active: 'border-teal-500 text-teal-600 bg-teal-50' },
-          { key: 'all',        label: 'الكل',               icon: null,          count: 0,                 active: 'border-slate-400 text-slate-700 bg-slate-50' },
+          { key: 'permission', label: 'طلبات الاستئذان', icon: ClipboardList, count: pendingPermission, active: 'border-primary text-primary bg-primary/5' },
+          { key: 'admin_permission', label: 'استئذان الإدارة', icon: FileSignature, count: pendingAdminPermission, active: 'border-violet-500 text-violet-700 bg-violet-50' },
+          { key: 'pickup', label: 'الاستلام السريع', icon: Zap, count: pendingPickup, active: 'border-teal-500 text-teal-600 bg-teal-50' },
+          { key: 'all', label: 'الكل', icon: null, count: 0, active: 'border-slate-400 text-slate-700 bg-slate-50' },
         ] as const).map(({ key, label, icon: Icon, count, active }) => (
           <button
             key={key}
@@ -548,10 +601,10 @@ export default function ParentRequests() {
           <div className="flex gap-2 flex-wrap">
             {(['pending', 'approved', 'rejected', 'all'] as const).map((f) => (
               <Button key={f} size="sm" variant={statusFilter === f ? 'default' : 'outline'} onClick={() => setStatusFilter(f)}>
-                {f === 'pending' ? 'قيد المراجعة' : f === 'approved' ? 'مؤكدة' : f === 'rejected' ? 'مرفوضة' : 'الكل'}
-                {f === 'pending' && (pendingPermission + pendingPickup) > 0 && (
+                {f === 'pending' ? 'قيد المراجعة' : f === 'approved' && typeTab === 'admin_permission' ? 'خرج' : f === 'approved' ? 'مؤكدة' : f === 'rejected' ? 'مرفوضة' : 'الكل'}
+                {f === 'pending' && totalPending > 0 && (
                   <span className="mr-1.5 text-xs bg-red-500 text-white rounded-full px-1.5 py-0.5 leading-none">
-                    {pendingPermission + pendingPickup}
+                    {totalPending}
                   </span>
                 )}
               </Button>

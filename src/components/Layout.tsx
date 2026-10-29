@@ -43,12 +43,12 @@ export function Layout() {
 
   const schoolSlug = school?.slug ?? localStorage.getItem('school_slug') ?? 'dahya-boys';
   const schoolLogo = SCHOOL_LOGOS[schoolSlug] ?? GROUP_LOGO;
-  const [pendingRequestCounts, setPendingRequestCounts] = useState({ permission: 0, pickup: 0 });
+  const [pendingRequestCounts, setPendingRequestCounts] = useState({ permission: 0, administration: 0, pickup: 0 });
   const knownRequestIds = useRef(new Set<string>());
   const notifiedRequestIds = useRef(new Set<string>());
   const notificationBaselineReady = useRef(false);
   const notificationBaselineSchool = useRef<string | null>(null);
-  const pendingRequestTotal = pendingRequestCounts.permission + pendingRequestCounts.pickup;
+  const pendingRequestTotal = pendingRequestCounts.permission + pendingRequestCounts.administration + pendingRequestCounts.pickup;
 
   useEffect(() => {
     let active = true;
@@ -60,16 +60,24 @@ export function Layout() {
       id: string;
       student_name: string;
       request_type: string | null;
+      source: string | null;
       status: string;
     }) => {
       if (!isAdmin || request.status !== 'pending' || notifiedRequestIds.current.has(request.id)) return;
       knownRequestIds.current.add(request.id);
       notifiedRequestIds.current.add(request.id);
       const isPickup = request.request_type === 'pickup';
-      const title = isPickup ? 'طلب استلام سريع جديد' : 'طلب استئذان جديد';
+      const title = request.source === 'administration'
+        ? 'استئذان الإدارة الجديد'
+        : isPickup ? 'طلب استلام سريع جديد' : 'طلب استئذان جديد';
       toast.info(`${title}: ${request.student_name}`, {
         duration: 10000,
-        action: { label: 'عرض الطلب', onClick: () => navigate('/parent-requests') },
+        action: {
+          label: 'عرض الطلب',
+          onClick: () => navigate(request.source === 'administration'
+            ? '/parent-requests?source=administration'
+            : '/parent-requests'),
+        },
       });
       try {
         const context = new AudioContext();
@@ -90,28 +98,35 @@ export function Layout() {
     };
 
     const refreshCounts = async () => {
-      const [permissionResult, pickupResult, requestsResult] = await Promise.all([
+      const [permissionResult, administrationResult, pickupResult, requestsResult] = await Promise.all([
         (supabase as any).from('parent_requests')
           .select('id', { count: 'exact', head: true })
           .eq('school_slug', schoolSlug)
           .eq('status', 'pending')
+          .neq('source', 'administration')
           .or('request_type.eq.permission,request_type.is.null'),
+        (supabase as any).from('parent_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_slug', schoolSlug)
+          .eq('status', 'pending')
+          .eq('source', 'administration'),
         (supabase as any).from('parent_requests')
           .select('id', { count: 'exact', head: true })
           .eq('school_slug', schoolSlug)
           .eq('status', 'pending')
           .eq('request_type', 'pickup'),
         (supabase as any).from('parent_requests')
-          .select('id, student_name, request_type, status')
+          .select('id, student_name, request_type, source, status')
           .eq('school_slug', schoolSlug)
           .eq('status', 'pending')
           .order('created_at', { ascending: false })
           .limit(100),
       ]);
       if (!active) return;
-      if (!permissionResult.error && !pickupResult.error) {
+      if (!permissionResult.error && !administrationResult.error && !pickupResult.error) {
         setPendingRequestCounts({
           permission: permissionResult.count ?? 0,
+          administration: administrationResult.count ?? 0,
           pickup: pickupResult.count ?? 0,
         });
       }
@@ -124,6 +139,7 @@ export function Layout() {
         id: string;
         student_name: string;
         request_type: string | null;
+        source: string | null;
         status: string;
       }>;
       if (!notificationBaselineReady.current) {
@@ -152,6 +168,7 @@ export function Layout() {
           id: string;
           student_name: string;
           request_type: string | null;
+          source: string | null;
           status: string;
         });
       })

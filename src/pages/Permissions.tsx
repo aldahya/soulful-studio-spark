@@ -14,6 +14,7 @@ import { todayISO, formatDate } from '@/lib/i18n';
 import { toast } from 'sonner';
 import { useSchoolSettings } from '@/lib/school';
 import CameraScanner from '@/components/CameraScanner';
+import { createAdminPermissionRequest } from '@/lib/adminPermissionRequests';
 
 const REASONS = [
   'مراجعة طبية',
@@ -36,14 +37,13 @@ interface PermRow {
 }
 
 export default function Permissions() {
-  const { user, isAdmin, isTeacher, schoolId } = useAuth();
+  const { user, isAdmin, isTeacher, schoolId, school } = useAuth();
   const settings = useSchoolSettings();
   const canIssue = isAdmin || isTeacher;
   const [code, setCode] = useState('');
   const [reason, setReason] = useState(REASONS[0]);
   const [notes, setNotes] = useState('');
   const [issuing, setIssuing] = useState(false);
-  const [teacherId, setTeacherId] = useState<string | null>(null);
   const [date, setDate] = useState(todayISO());
   const [rows, setRows] = useState<PermRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,10 +52,6 @@ export default function Permissions() {
   useEffect(() => {
     document.title = 'الاستذانات | نظام الضاحية';
     inputRef.current?.focus();
-    if (user) {
-      supabase.from('teachers').select('id').eq('user_id', user.id).maybeSingle()
-        .then(({ data }) => setTeacherId(data?.id ?? null));
-    }
   }, [user]);
 
   useEffect(() => { load(); }, [date]);
@@ -79,34 +75,30 @@ export default function Permissions() {
     if (!trimmed) return;
     setIssuing(true);
     try {
+      if (!schoolId || !school?.slug) {
+        toast.error('تعذر تحديد المدرسة المرتبطة بهذا الحساب');
+        return;
+      }
       const { data: student } = await supabase
         .from('students').select('id, full_name')
         .eq('barcode', trimmed).maybeSingle();
       if (!student) { toast.error('باركود غير معروف'); return; }
 
-      const { error } = await supabase.from('permissions').insert({
-        student_id: student.id,
-        teacher_id: teacherId,
-        issued_by: user.id,
+      const { error } = await createAdminPermissionRequest({
+        studentId: student.id,
+        schoolSlug: school.slug,
         reason,
-        notes: notes || null,
-        date: todayISO(),
+        notes,
       });
       if (error) {
-        if (error.code === '23505') toast.error('يوجد استذان لهذا الطالب اليوم بالفعل');
+        if (error.message.includes('parent_requests_one_pending_admin_per_student') || error.message.includes('duplicate key')) {
+          toast.error('يوجد استئذان إداري قيد المراجعة لهذا الطالب بالفعل');
+        }
         else toast.error(error.message);
         return;
       }
-      const { data: created } = await supabase
-        .from('permissions').select('id').eq('student_id', student.id).eq('date', todayISO()).maybeSingle();
-      if (created) {
-        await supabase.from('permission_logs').insert({
-          permission_id: created.id, action: 'issued', actor_id: user.id,
-        });
-      }
-      toast.success(`تم إصدار استذان: ${student.full_name}`);
+      toast.success(`تم إرسال استئذان ${student.full_name} إلى قسم «استئذان الإدارة»`);
       setCode(''); setNotes('');
-      load();
       setTimeout(() => inputRef.current?.focus(), 50);
     } finally {
       setIssuing(false);
@@ -183,12 +175,12 @@ export default function Permissions() {
     <div className="space-y-6">
       <header>
         <h1 className="text-3xl font-extrabold flex items-center gap-2"><FileSignature className="h-7 w-7 text-primary" /> الاستذانات</h1>
-        <p className="mt-1 text-sm text-muted-foreground">إصدار استذانات الخروج للطلاب — استذان واحد لكل طالب يومياً</p>
+        <p className="mt-1 text-sm text-muted-foreground">ترسل الطلبات إلى «استئذان الإدارة» ولا يُسجل الخروج إلا بعد موافقة الإدارة.</p>
       </header>
 
       {canIssue && (
         <Card className="p-6 shadow-soft">
-          <h2 className="mb-4 text-lg font-bold">إصدار استذان جديد</h2>
+          <h2 className="mb-4 text-lg font-bold">إرسال استئذان للإدارة</h2>
           <form onSubmit={issue} className="grid gap-4 lg:grid-cols-3">
             <div className="space-y-2 lg:col-span-1">
               <Label>باركود الطالب</Label>
@@ -213,7 +205,7 @@ export default function Permissions() {
             <div className="lg:col-span-3">
               <Button type="submit" disabled={issuing || !code.trim()} className="bg-gradient-primary">
                 {issuing && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
-                إصدار الاستذان
+                إرسال الطلب
               </Button>
             </div>
           </form>

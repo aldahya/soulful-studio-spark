@@ -20,6 +20,7 @@ import CameraScanner from '@/components/CameraScanner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { beepSuccess, beepError, beepDuplicate, autoStatusByTime } from '@/lib/feedback';
 import { DEFAULT_SETTINGS, type SchoolSettings } from '@/lib/school';
+import { createAdminPermissionRequest } from '@/lib/adminPermissionRequests';
 
 interface LogEntry { time: string; ok: boolean; text: string; tag?: string }
 interface DupContext {
@@ -52,7 +53,7 @@ function isStudentNameQuery(value: string) {
 }
 
 export default function Scan() {
-  const { user, isAdmin, teacherId, teacherStage, schoolId } = useAuth();
+  const { user, isAdmin, teacherId, teacherStage, schoolId, school } = useAuth();
   const [code, setCode] = useState('');
   const [suggestions, setSuggestions] = useState<StudentSuggestion[]>([]);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
@@ -407,25 +408,27 @@ export default function Scan() {
     setPermOpen(true);
   }
   async function createPermission() {
-    if (!dupCtx) return;
-    const { error } = await supabase.from('permissions').insert({
-      student_id: dupCtx.studentId,
-      teacher_id: teacherId,
-      issued_by: user!.id,
-      reason: permReason || 'خروج من المدرسة',
-      notes: permNotes || null,
-      date: todayISO(),
-      status: 'pending',
+    if (!dupCtx || !user) return;
+    if (!school?.slug) {
+      toast.error('تعذر تحديد المدرسة المرتبطة بهذا الحساب');
+      return;
+    }
+    const reason = permReason || 'خروج من المدرسة';
+    const { error } = await createAdminPermissionRequest({
+      studentId: dupCtx.studentId,
+      schoolSlug: school.slug,
+      reason,
+      notes: permNotes,
     });
     if (error) {
       toast.error(error.message);
       pushLog(false, `فشل إصدار استذان لـ ${dupCtx.studentName}: ${error.message}`);
     } else {
-      toast.success(`تم إصدار استذان لـ ${dupCtx.studentName}`);
+      toast.success(`تم إرسال استئذان ${dupCtx.studentName} إلى قسم «استئذان الإدارة»`);
       pushLog(true, `${dupCtx.studentName} (${dupCtx.studentNumber}) — استذان جديد`, 'استذان جديد');
       await supabase.from('scan_events').insert({
         kind: 'permission_issued', student_id: dupCtx.studentId, actor_id: user!.id,
-        meta: { reason: permReason || 'خروج من المدرسة' },
+        meta: { reason, request_source: 'administration' },
       });
     }
     setPermOpen(false);
@@ -653,7 +656,7 @@ export default function Scan() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => { setPermOpen(false); setDupCtx(null); focusInput(); }}>إلغاء</Button>
-            <Button onClick={createPermission} className="bg-gradient-primary">حفظ الاستذان</Button>
+            <Button onClick={createPermission} className="bg-gradient-primary">إرسال استئذان للإدارة</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
