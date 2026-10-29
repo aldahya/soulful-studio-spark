@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ScanLine, FileSignature, Loader2, Printer, RotateCcw } from 'lucide-react';
+import { ScanLine, FileSignature, Loader2, Printer, RotateCcw, Search, Check } from 'lucide-react';
 import { todayISO, formatDate } from '@/lib/i18n';
 import { toast } from 'sonner';
 import { useSchoolSettings } from '@/lib/school';
@@ -36,11 +36,25 @@ interface PermRow {
   students: { full_name: string; student_number: string; parent_phone: string | null } | null;
 }
 
+interface StudentSuggestion {
+  id: string;
+  full_name: string;
+  student_number: string;
+  barcode: string;
+}
+
 export default function Permissions() {
-  const { user, isAdmin, isTeacher, schoolId, school } = useAuth();
+  const { user, isAdmin, isTeacher, teacherStage, schoolId, school } = useAuth();
   const settings = useSchoolSettings();
   const canIssue = isAdmin || isTeacher;
   const [code, setCode] = useState('');
+  const [studentSearch, setStudentSearch] = useState('');
+  const [studentSuggestions, setStudentSuggestions] = useState<StudentSuggestion[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<StudentSuggestion | null>(null);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [suggestionError, setSuggestionError] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const [reason, setReason] = useState(REASONS[0]);
   const [notes, setNotes] = useState('');
   const [issuing, setIssuing] = useState(false);
@@ -48,13 +62,67 @@ export default function Permissions() {
   const [rows, setRows] = useState<PermRow[]>([]);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.title = 'الاستذانات | نظام الضاحية';
-    inputRef.current?.focus();
+    nameInputRef.current?.focus();
   }, [user]);
 
   useEffect(() => { load(); }, [date]);
+
+  useEffect(() => {
+    const searchTerm = studentSearch.trim().replace(/\s+/g, ' ');
+    if (!schoolId || selectedStudent || searchTerm.length < 2 || /[0-9٠-٩۰-۹]/.test(searchTerm)) {
+      setStudentSuggestions([]);
+      setSuggestionLoading(false);
+      setSuggestionError(false);
+      setActiveSuggestion(-1);
+      return;
+    }
+
+    let cancelled = false;
+    setStudentSuggestions([]);
+    setActiveSuggestion(-1);
+    setSuggestionLoading(true);
+    setSuggestionError(false);
+    const timer = window.setTimeout(async () => {
+      const safeTerm = searchTerm.replace(/[%_]/g, '');
+      if (safeTerm.length < 2) {
+        if (!cancelled) setSuggestionLoading(false);
+        return;
+      }
+      let query = (supabase as any)
+        .from('students')
+        .select('id, full_name, student_number, barcode')
+        .eq('school_id', schoolId)
+        .ilike('full_name', `${safeTerm}%`);
+
+      if (!isAdmin && teacherStage) query = query.eq('stage', teacherStage);
+
+      const { data, error } = await query.order('full_name', { ascending: true }).limit(8);
+      if (cancelled) return;
+      setStudentSuggestions((data ?? []) as StudentSuggestion[]);
+      setSuggestionError(Boolean(error));
+      setSuggestionLoading(false);
+      setSuggestionsOpen(true);
+      setActiveSuggestion(-1);
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [studentSearch, selectedStudent, schoolId, isAdmin, teacherStage]);
+
+  function selectStudentSuggestion(student: StudentSuggestion) {
+    setSelectedStudent(student);
+    setStudentSearch(student.full_name);
+    setStudentSuggestions([]);
+    setSuggestionsOpen(false);
+    setActiveSuggestion(-1);
+    setCode('');
+  }
 
   async function load() {
     if (!schoolId) return;
@@ -69,23 +137,28 @@ export default function Permissions() {
     setLoading(false);
   }
 
-  async function issueWithCode(rawCode: string) {
+  async function submitRequest(student: StudentSuggestion | null, rawCode: string) {
     if (!user) return;
     const trimmed = rawCode.trim();
-    if (!trimmed) return;
+    if (!student && !trimmed) return;
     setIssuing(true);
     try {
       if (!schoolId || !school?.slug) {
         toast.error('تعذر تحديد المدرسة المرتبطة بهذا الحساب');
         return;
       }
-      const { data: student } = await supabase
-        .from('students').select('id, full_name')
-        .eq('barcode', trimmed).maybeSingle();
-      if (!student) { toast.error('باركود غير معروف'); return; }
+      let targetStudent = student;
+      if (!targetStudent) {
+        const { data, error } = await supabase
+          .from('students').select('id, full_name, student_number, barcode')
+          .eq('barcode', trimmed).maybeSingle();
+        if (error) { toast.error(error.message); return; }
+        if (!data) { toast.error('باركود غير معروف'); return; }
+        targetStudent = data;
+      }
 
       const { error } = await createAdminPermissionRequest({
-        studentId: student.id,
+        studentId: targetStudent.id,
         schoolSlug: school.slug,
         reason,
         notes,
@@ -97,17 +170,54 @@ export default function Permissions() {
         else toast.error(error.message);
         return;
       }
-      toast.success(`تم إرسال استئذان ${student.full_name} إلى قسم «استئذان الإدارة»`);
-      setCode(''); setNotes('');
-      setTimeout(() => inputRef.current?.focus(), 50);
+      toast.success(`تم إرسال استئذان ${targetStudent.full_name} إلى قسم «استئذان الإدارة»`);
+      setCode('');
+      setStudentSearch('');
+      setStudentSuggestions([]);
+      setSelectedStudent(null);
+      setSuggestionsOpen(false);
+      setNotes('');
+      setTimeout(() => nameInputRef.current?.focus(), 50);
     } finally {
       setIssuing(false);
     }
   }
 
+  async function issueWithCode(rawCode: string) {
+    await submitRequest(null, rawCode);
+  }
+
   async function issue(e: React.FormEvent) {
     e.preventDefault();
+    if (selectedStudent) {
+      await submitRequest(selectedStudent, '');
+      return;
+    }
+    if (studentSearch.trim()) {
+      toast.error('اختر اسم الطالبة أو الطالب من قائمة الاقتراحات أولاً');
+      setSuggestionsOpen(true);
+      return;
+    }
     await issueWithCode(code);
+  }
+
+  function handleStudentSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'ArrowDown' && studentSuggestions.length > 0) {
+      e.preventDefault();
+      setSuggestionsOpen(true);
+      setActiveSuggestion((current) => (current + 1) % studentSuggestions.length);
+    } else if (e.key === 'ArrowUp' && studentSuggestions.length > 0) {
+      e.preventDefault();
+      setSuggestionsOpen(true);
+      setActiveSuggestion((current) => (current <= 0 ? studentSuggestions.length - 1 : current - 1));
+    } else if (e.key === 'Enter' && suggestionsOpen && studentSuggestions.length > 0) {
+      e.preventDefault();
+      const choice = studentSuggestions[activeSuggestion >= 0 ? activeSuggestion : 0];
+      selectStudentSuggestion(choice);
+    } else if (e.key === 'Escape') {
+      setSuggestionsOpen(false);
+      setActiveSuggestion(-1);
+    }
   }
 
   const lastScanRef = useRef<{ code: string; at: number }>({ code: '', at: 0 });
@@ -183,10 +293,87 @@ export default function Permissions() {
           <h2 className="mb-4 text-lg font-bold">إرسال استئذان للإدارة</h2>
           <form onSubmit={issue} className="grid gap-4 lg:grid-cols-3">
             <div className="space-y-2 lg:col-span-1">
-              <Label>باركود الطالب</Label>
+              <Label htmlFor="permission-student-search">البحث باسم الطالب أو الطالبة</Label>
+              <div className="relative">
+                <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="permission-student-search"
+                  ref={nameInputRef}
+                  value={studentSearch}
+                  onChange={(e) => {
+                    setStudentSearch(e.target.value);
+                    setSelectedStudent(null);
+                    setCode('');
+                    setSuggestionsOpen(true);
+                  }}
+                  onFocus={() => studentSuggestions.length > 0 && setSuggestionsOpen(true)}
+                  onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 120)}
+                  onKeyDown={handleStudentSearchKeyDown}
+                  placeholder="اكتب أول حرفين من الاسم"
+                  autoComplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={suggestionsOpen && studentSearch.trim().length >= 2 && !selectedStudent}
+                  aria-controls="permission-student-suggestions"
+                  className="pr-10"
+                />
+                {suggestionLoading && (
+                  <Loader2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary" />
+                )}
+                {suggestionsOpen && studentSearch.trim().length >= 2 && !selectedStudent && (
+                  <div
+                    id="permission-student-suggestions"
+                    role="listbox"
+                    className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+                  >
+                    {suggestionError ? (
+                      <p className="px-3 py-2 text-sm text-destructive">تعذر البحث عن الطلاب. حاول مرة أخرى.</p>
+                    ) : suggestionLoading ? null : studentSuggestions.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-muted-foreground">لا توجد أسماء مطابقة في هذه المدرسة.</p>
+                    ) : (
+                      studentSuggestions.map((student, index) => (
+                        <button
+                          key={student.id}
+                          type="button"
+                          role="option"
+                          aria-selected={index === activeSuggestion}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => selectStudentSuggestion(student)}
+                          className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-right text-sm hover:bg-accent ${index === activeSuggestion ? 'bg-accent' : ''}`}
+                        >
+                          <span className="font-medium">{student.full_name}</span>
+                          <span className="mr-3 shrink-0 text-xs text-muted-foreground">رقم {student.student_number}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              {selectedStudent && (
+                <p className="flex items-center gap-1 text-xs text-emerald-700">
+                  <Check className="h-3.5 w-3.5" />
+                  تم اختيار {selectedStudent.full_name} — {selectedStudent.student_number}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2 lg:col-span-1">
+              <Label>أو أدخل باركود الطالب</Label>
               <div className="relative">
                 <ScanLine className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
-                <Input ref={inputRef} value={code} onChange={(e) => setCode(e.target.value)} placeholder="ALD-..." dir="ltr" className="pr-10 font-mono" />
+                <Input
+                  ref={inputRef}
+                  value={code}
+                  onChange={(e) => {
+                    setCode(e.target.value);
+                    setStudentSearch('');
+                    setSelectedStudent(null);
+                    setStudentSuggestions([]);
+                    setSuggestionsOpen(false);
+                  }}
+                  placeholder="ALD-..."
+                  dir="ltr"
+                  className="pr-10 font-mono"
+                />
               </div>
             </div>
             <div className="space-y-2">
@@ -203,7 +390,7 @@ export default function Permissions() {
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={1} />
             </div>
             <div className="lg:col-span-3">
-              <Button type="submit" disabled={issuing || !code.trim()} className="bg-gradient-primary">
+              <Button type="submit" disabled={issuing || (!selectedStudent && !code.trim() && !studentSearch.trim())} className="bg-gradient-primary">
                 {issuing && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                 إرسال الطلب
               </Button>
