@@ -26,10 +26,19 @@ export const STATUS_COLORS: Record<AttendanceStatus, string> = {
   absent: 'bg-destructive/10 text-destructive border-destructive/20',
 };
 
+function digitsOnly(phone: string): string {
+  return phone
+    .replace(/[٠-٩۰-۹]/g, (digit) => {
+      const code = digit.charCodeAt(0);
+      return String(code - (code >= 1776 ? 1776 : 1632));
+    })
+    .replace(/\D/g, '');
+}
+
 export function toWhatsAppNumber(phone?: string | null): string | null {
   if (!phone) return null;
   // remove everything except digits (drops +, spaces, dashes, parentheses, RTL marks…)
-  let digits = phone.replace(/\D/g, '');
+  let digits = digitsOnly(phone);
   if (!digits) return null;
   // strip international prefix "00"
   if (digits.startsWith('00')) digits = digits.slice(2);
@@ -45,6 +54,19 @@ export function toWhatsAppNumber(phone?: string | null): string | null {
   // strip any leading zeros for other countries
   digits = digits.replace(/^0+/, '');
   return digits || null;
+}
+
+export function phoneLookupCandidates(phone?: string | null): string[] {
+  if (!phone) return [];
+  const digits = digitsOnly(phone);
+  if (!digits) return [];
+
+  const international = toWhatsAppNumber(digits);
+  if (!international?.startsWith('966')) return [...new Set([digits, ...(international ? [international, `00${international}`] : [])])];
+
+  const national = international.slice(3);
+  const local = national.startsWith('5') && national.length === 9 ? `0${national}` : national;
+  return [...new Set([digits, local, national, `966${national}`, `00966${national}`])];
 }
 
 export function whatsAppLink(phone: string | null | undefined, message?: string): string | null {

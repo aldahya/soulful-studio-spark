@@ -12,6 +12,7 @@ import { CheckCircle2, Loader2, School, ClipboardList, Phone, Search, Zap, UserC
 import { toast } from 'sonner';
 import { SCHOOL_LOGOS } from '@/lib/school';
 import { withActiveStudentFilter } from '@/lib/student-archive';
+import { phoneLookupCandidates } from '@/lib/i18n';
 
 const REASONS = [
   'مراجعة طبية',
@@ -68,9 +69,11 @@ interface StudentOption {
 }
 
 export default function ParentRequest() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const schoolSlug = params.get('school') ?? 'dahya-boys';
-  const isPickup   = params.get('type') === 'pickup';
+  const requestType = params.get('type');
+  const hasRequestType = requestType === 'permission' || requestType === 'pickup';
+  const isPickup   = requestType === 'pickup';
   const school     = SCHOOL_META[schoolSlug] ?? SCHOOL_META['dahya-boys'];
 
   // --- بيانات الطالب ---
@@ -81,6 +84,7 @@ export default function ParentRequest() {
   const [searchingPhone, setSearchingPhone]         = useState(false);
   const [phoneLookupDone, setPhoneLookupDone]       = useState(false);
   const [submittedStudents, setSubmittedStudents]   = useState<StudentOption[]>([]);
+  const [submittedExitTime, setSubmittedExitTime]   = useState('');
 
   // رقم الطالب المباشر (اختياري — بحث بديل)
   const [lookupDone, setLookupDone]   = useState(false);
@@ -91,7 +95,6 @@ export default function ParentRequest() {
 
   // --- بيانات الطلب ---
   const [reason, setReason]     = useState(isPickup ? PICKUP_REASONS[0] : REASONS[0]);
-  const [pickupLocation, setPickupLocation] = useState('');
   const [exitTime, setExitTime] = useState('');
   const [notes, setNotes]       = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -100,29 +103,41 @@ export default function ParentRequest() {
   const phoneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    document.title = isPickup ? `استلام سريع — ${school.name}` : `طلب استئذان — ${school.name}`;
-  }, [school.name, isPickup]);
+    document.title = !hasRequestType
+      ? `خدمات أولياء الأمور — ${school.name}`
+      : isPickup
+        ? `استلام سريع — ${school.name}`
+        : `طلب استئذان — ${school.name}`;
+  }, [school.name, isPickup, hasRequestType]);
 
   // ─── بحث بجوال ولي الأمر + المدرسة ───────────────────────────────────────
   async function lookupByPhone(phone: string) {
-    const clean = phone.replace(/\s/g, '');
+    const clean = normalizeDigits(phone).replace(/\D/g, '');
+    const candidates = phoneLookupCandidates(phone);
     if (clean.length < 9) {
       setFoundStudents([]);
       setPhoneLookupDone(false);
       return;
     }
+    const schoolId = SCHOOL_IDS[schoolSlug];
+    if (!schoolId) {
+      setFoundStudents([]);
+      setPhoneLookupDone(true);
+      setSearchingPhone(false);
+      toast.error('رابط المدرسة غير صالح؛ اطلب رمز QR الصحيح من المدرسة');
+      return;
+    }
     setSearchingPhone(true);
     try {
-      const schoolId = SCHOOL_IDS[schoolSlug];
       // نبحث بـ school_id لأن school_slug في جدول الطلاب قد يكون فارغاً
       const { data, error } = await withActiveStudentFilter((filterArchived) => {
-        let query = supabase
+        let query = (supabase as any)
           .from('students')
           .select('student_number, full_name, parent_phone')
-          .eq('parent_phone', clean);
-        if (schoolId) query = query.eq('school_id', schoolId);
+          .in('parent_phone', candidates)
+          .eq('school_id', schoolId);
         if (filterArchived) query = query.is('archived_at', null);
-        return query;
+        return query.order('full_name', { ascending: true });
       });
 
       if (error) console.error('lookupByPhone error:', error);
@@ -187,20 +202,20 @@ export default function ParentRequest() {
     const usingPhoneLookup = foundStudents.length > 0;
     const selectedList     = foundStudents.filter((s) => selectedStudentNums.has(s.student_number));
 
+    if (isPickup && (!phoneLookupDone || !usingPhoneLookup || selectedList.length === 0)) {
+      toast.error('أدخل رقم جوال ولي الأمر واختر طالبًا واحدًا على الأقل من الطلاب المرتبطين به');
+      return;
+    }
     if (usingPhoneLookup && selectedList.length === 0) {
       toast.error('يرجى تحديد طالب واحد على الأقل');
       return;
     }
-    if (!usingPhoneLookup && !studentName.trim()) {
+    if (!isPickup && !usingPhoneLookup && !studentName.trim()) {
       toast.error('يرجى إدخال اسم الطالب أو البحث برقم جوال ولي الأمر');
       return;
     }
-    if (!parentPhone.trim() || !exitTime) {
-      toast.error('يرجى تعبئة: رقم الجوال ووقت الخروج');
-      return;
-    }
-    if (isPickup && !pickupLocation) {
-      toast.error('يرجى تحديد مكان الخروج');
+    if (!parentPhone.trim() || (!isPickup && !exitTime)) {
+      toast.error(isPickup ? 'يرجى إدخال رقم جوال ولي الأمر' : 'يرجى تعبئة رقم الجوال ووقت الخروج');
       return;
     }
     if (!receiverRelationship) {
@@ -214,15 +229,23 @@ export default function ParentRequest() {
     }
     setSubmitting(true);
     try {
+      const requestExitTime = isPickup
+        ? new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Asia/Riyadh',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+          }).format(new Date())
+        : exitTime;
       const commonFields = {
         school_slug:           schoolSlug,
         parent_phone:          parentPhone.trim(),
-        reason,
-        requested_exit_time:   exitTime,
+        reason:                isPickup ? PICKUP_REASONS[0] : reason,
+        requested_exit_time:   requestExitTime,
         notes:                 notes.trim() || null,
         status:                'pending',
         request_type:          isPickup ? 'pickup' : 'permission',
-        ...(isPickup ? { pickup_location: pickupLocation } : {}),
+        ...(isPickup ? { pickup_location: 'بوابة المدرسة الرئيسية' } : {}),
         receiver_relationship: receiverRelationship,
         ...(!isPickup ? { receiver_id_number: normalizedReceiverId } : {}),
       };
@@ -245,6 +268,7 @@ export default function ParentRequest() {
         if (error) { toast.error('حدث خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى'); return; }
         setSubmittedStudents([{ student_number: '—', full_name: studentName.trim(), parent_phone: parentPhone.trim() }]);
       }
+      setSubmittedExitTime(requestExitTime);
       setSubmitted(true);
     } finally {
       setSubmitting(false);
@@ -252,16 +276,31 @@ export default function ParentRequest() {
   }
 
   function resetForm() {
+    if (phoneTimer.current) clearTimeout(phoneTimer.current);
     setParentPhone(''); setFoundStudents([]); setPhoneLookupDone(false);
     setStudentName(''); setSelectedStudentNums(new Set());
-    setSubmittedStudents([]);
+    setSubmittedStudents([]); setSubmittedExitTime('');
     setLookupDone(false);
     setReceiverRelationship('');
     setReceiverIdNumber('');
     setReason(isPickup ? PICKUP_REASONS[0] : REASONS[0]);
-    setPickupLocation('');
     setExitTime(''); setNotes('');
     setSubmitted(false);
+  }
+
+  function chooseRequestType(type: 'permission' | 'pickup') {
+    resetForm();
+    setReason(type === 'pickup' ? PICKUP_REASONS[0] : REASONS[0]);
+    const next = new URLSearchParams(params);
+    next.set('type', type);
+    setParams(next, { replace: true });
+  }
+
+  function returnToServiceChoice() {
+    resetForm();
+    const next = new URLSearchParams(params);
+    next.delete('type');
+    setParams(next, { replace: true });
   }
 
   const accentBg = lookupDone ? 'border-emerald-400 bg-emerald-50/60' : '';
@@ -289,6 +328,47 @@ export default function ParentRequest() {
         <p className="text-sm text-gray-500">{school.subtitle}</p>
       </div>
 
+      {!hasRequestType ? (
+        <Card className="w-full max-w-md shadow-xl border-0 overflow-hidden">
+          <div className="px-6 py-5 text-white" style={{ background: school.color }}>
+            <h2 className="text-xl font-bold">مرحبًا بكم في خدمات أولياء الأمور</h2>
+            <p className="text-white/80 text-sm mt-2">اختر الخدمة التي تريدها للطالب</p>
+          </div>
+          <div className="p-6 space-y-3">
+            <Button
+              type="button"
+              onClick={() => chooseRequestType('permission')}
+              className="w-full h-auto justify-between py-4 text-white"
+              style={{ background: school.color }}
+            >
+              <span className="flex items-center gap-3 text-right">
+                <ClipboardList className="h-5 w-5" />
+                <span>
+                  <span className="block font-bold">طلب استئذان</span>
+                  <span className="block text-xs font-normal opacity-80">طلب خروج مبكر بموافقة الإدارة</span>
+                </span>
+              </span>
+              <span aria-hidden="true">←</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => chooseRequestType('pickup')}
+              className="w-full h-auto justify-between py-4"
+              style={{ color: school.color, borderColor: `${school.color}55` }}
+            >
+              <span className="flex items-center gap-3 text-right">
+                <Zap className="h-5 w-5" />
+                <span>
+                  <span className="block font-bold">استلام سريع من الموقع</span>
+                  <span className="block text-xs font-normal text-muted-foreground">إبلاغ المدرسة بوصول ولي الأمر للبوابة</span>
+                </span>
+              </span>
+              <span aria-hidden="true">←</span>
+            </Button>
+          </div>
+        </Card>
+      ) : (
       <Card className="w-full max-w-md shadow-xl border-0 overflow-hidden">
         {/* رأس البطاقة */}
         <div className="px-6 py-4" style={{ background: school.color }}>
@@ -302,6 +382,16 @@ export default function ParentRequest() {
               ? 'أدخل رقم جوال ولي الأمر لاستلام الطالب من البوابة'
               : 'يُرجى تعبئة البيانات بدقة لمعالجة طلبكم وإرسال إشعار واتساب'}
           </p>
+        </div>
+        <div className="px-6 pt-3">
+          <button
+            type="button"
+            onClick={returnToServiceChoice}
+            className="text-xs font-medium underline underline-offset-2"
+            style={{ color: school.color }}
+          >
+            العودة لاختيار الخدمة
+          </button>
         </div>
 
         {submitted ? (
@@ -336,8 +426,8 @@ export default function ParentRequest() {
                 </>
               )}
               <div className="flex justify-between"><span className="text-gray-500">المستلم</span><span>{receiverRelationship}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">السبب</span><span>{reason}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">وقت الخروج</span><span>{exitTime}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">السبب</span><span>{isPickup ? PICKUP_REASONS[0] : reason}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">وقت الخروج</span><span>{submittedExitTime || exitTime}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">الجوال</span><span className="font-mono">{parentPhone}</span></div>
             </div>
             <Button
@@ -393,11 +483,11 @@ export default function ParentRequest() {
               </div>
 
               {/* قائمة الطلاب المرتبطين برقم الجوال */}
-              {foundStudents.length > 1 && (
+              {foundStudents.length > 0 && (isPickup || foundStudents.length > 1) && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label className="text-sm font-semibold">
-                      اختر الطلاب <span className="text-red-500">*</span>
+                      {isPickup ? 'الطلاب المرتبطون بهذا الرقم' : 'اختر الطلاب'} <span className="text-red-500">*</span>
                     </Label>
                     <button
                       type="button"
@@ -454,6 +544,7 @@ export default function ParentRequest() {
               )}
 
               {/* اسم الطالب — يُملأ تلقائياً أو يدوياً */}
+              {!isPickup && (
               <div className="space-y-1">
                 <Label className="text-sm font-semibold">
                   اسم الطالب / الطالبة <span className="text-red-500">*</span>
@@ -467,6 +558,7 @@ export default function ParentRequest() {
                   className={accentBg}
                 />
               </div>
+              )}
             </div>
 
             {/* ══════════════════════════════════════ */}
@@ -519,58 +611,49 @@ export default function ParentRequest() {
             <div className="space-y-4 pt-2 border-t border-gray-100">
               <p className="text-xs font-bold uppercase tracking-wide text-gray-400">③ تفاصيل الطلب</p>
 
-              {/* سبب الاستئذان */}
-              <div className="space-y-1">
-                <Label className="text-sm font-semibold">
-                  سبب {isPickup ? 'الاستلام' : 'الاستئذان'} <span className="text-red-500">*</span>
-                </Label>
-                <Select value={reason} onValueChange={setReason}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {(isPickup ? PICKUP_REASONS : REASONS).map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {isPickup && (
-                <div className="space-y-1">
-                  <Label className="text-sm font-semibold">
-                    مكان الخروج <span className="text-red-500">*</span>
-                  </Label>
-                  <Select value={pickupLocation} onValueChange={setPickupLocation}>
-                    <SelectTrigger><SelectValue placeholder="اختر مكان الخروج..." /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="مكتب التنسيق">مكتب التنسيق</SelectItem>
-                      <SelectItem value="بوابة المدرسة الرئيسية">بوابة المدرسة الرئيسية</SelectItem>
-                    </SelectContent>
-                  </Select>
+              {isPickup ? (
+                <div className="rounded-xl border px-4 py-3 text-sm" style={{ borderColor: `${school.color}40`, background: `${school.color}0b`, color: school.color }}>
+                  سيُسجّل النظام وقت إرسال طلب الاستلام تلقائيًا.
                 </div>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-sm font-semibold">
+                      سبب الاستئذان <span className="text-red-500">*</span>
+                    </Label>
+                    <Select value={reason} onValueChange={setReason}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-sm font-semibold">
+                      وقت الخروج المطلوب <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      type="time"
+                      value={exitTime}
+                      onChange={(e) => setExitTime(e.target.value)}
+                      dir="ltr"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-sm font-semibold">ملاحظات إضافية (اختياري)</Label>
+                    <Textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="أي معلومات إضافية..."
+                      rows={2}
+                    />
+                  </div>
+                </>
               )}
 
-              {/* وقت الخروج */}
-              <div className="space-y-1">
-                <Label className="text-sm font-semibold">
-                  وقت الخروج المطلوب <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  type="time"
-                  value={exitTime}
-                  onChange={(e) => setExitTime(e.target.value)}
-                  dir="ltr"
-                  required
-                />
-              </div>
-
-              {/* ملاحظات */}
-              <div className="space-y-1">
-                <Label className="text-sm font-semibold">ملاحظات إضافية (اختياري)</Label>
-                <Textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="أي معلومات إضافية..."
-                  rows={2}
-                />
-              </div>
             </div>
 
             <Button
@@ -593,6 +676,7 @@ export default function ParentRequest() {
           </form>
         )}
       </Card>
+      )}
     </div>
   );
 }

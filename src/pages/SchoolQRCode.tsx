@@ -1,4 +1,4 @@
-// صفحة عرض QR Code الخاص بكل مدرسة — باركود الاستئذان + باركود الاستلام السريع
+// صفحة عرض رمز QR واحد لصفحة خدمات أولياء الأمور الخاصة بكل مدرسة
 import { useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Card } from '@/components/ui/card';
@@ -73,7 +73,7 @@ function QRCard({ title, description, url, color, schoolName, schoolSubtitle, fi
         var img = document.getElementById('qrimg');
         if (img.complete) { window.print(); }
         else { img.onload = function() { window.print(); }; }
-      <\/script></body></html>`);
+      </script></body></html>`);
     w.document.close();
   }
 
@@ -123,8 +123,7 @@ export default function SchoolQRCode() {
     document.title = 'QR Code المدرسة | نظام الضاحية';
   }, []);
 
-  const permissionUrl = `${base}/parent-request?school=${schoolSlug}`;
-  const pickupUrl     = `${base}/parent-request?school=${schoolSlug}&type=pickup`;
+  const parentServicesUrl = `${base}/parent-request?school=${schoolSlug}`;
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto" dir="rtl">
@@ -134,29 +133,19 @@ export default function SchoolQRCode() {
           QR Code المدرسة
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          اطبع هذين الرمزين وضعهما عند البوابة — يمسحهما ولي الأمر بهاتفه مباشرة
+          اطبع رمزًا واحدًا وضعه عند البوابة — يختار ولي الأمر منه الاستئذان أو الاستلام السريع
         </p>
       </header>
 
-      {/* الباركودان جنباً إلى جنب دائماً */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="max-w-xl mx-auto">
         <QRCard
-          title="باركود الاستئذان"
-          description="يمسحه ولي الأمر لتقديم طلب خروج مبكر للطالب"
-          url={permissionUrl}
+          title="خدمات أولياء الأمور"
+          description="امسح الرمز، ثم اختر طلب الاستئذان أو الاستلام السريع من المدرسة"
+          url={parentServicesUrl}
           color={meta.color}
           schoolName={meta.name}
           schoolSubtitle={meta.subtitle}
-          filename={`qr-permission-${schoolSlug}`}
-        />
-        <QRCard
-          title="باركود الاستلام السريع"
-          description="يمسحه ولي الأمر عند البوابة لاستلام الطالب بشكل فوري"
-          url={pickupUrl}
-          color={meta.color}
-          schoolName={meta.name}
-          schoolSubtitle={meta.subtitle}
-          filename={`qr-pickup-${schoolSlug}`}
+          filename={`qr-parent-services-${schoolSlug}`}
         />
       </div>
     </div>
