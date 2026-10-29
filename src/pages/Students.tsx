@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
   import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
   import { Badge } from '@/components/ui/badge';
-  import { Plus, Search, Pencil, Trash2, ExternalLink, Loader2, Upload, Download, Printer, FileDown, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Pencil, Archive, ExternalLink, Loader2, Upload, Download, Printer, FileDown, AlertTriangle } from 'lucide-react';
   import { STAGE_LABELS, type Stage } from '@/lib/i18n';
   import { useAuth } from '@/hooks/useAuth';
   import { Link } from 'react-router-dom';
@@ -135,11 +135,8 @@ import { useEffect, useRef, useState } from 'react';
       setOpen(false); load();
     }
 
-    async function remove(s: Student) {
-      if (!confirm(`حذف الطالب ${s.full_name}؟`)) return;
-      const { error } = await supabase.from('students').delete().eq('id', s.id);
-      if (error) { toast.error(error.message); return; }
-      toast.success('تم الحذف'); load();
+    function remove(s: Student) {
+      toast.info(`تم إيقاف حذف ${s.full_name} مؤقتًا لحماية سجل الحضور والتقارير. ستتوفر الأرشفة بعد تهيئة قاعدة البيانات.`);
     }
 
     function downloadTemplate() {
@@ -247,7 +244,8 @@ import { useEffect, useRef, useState } from 'react';
     function toggleSelect(id: string) {
       setSelected((prev) => {
         const next = new Set(prev);
-        next.has(id) ? next.delete(id) : next.add(id);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
         return next;
       });
     }
@@ -429,7 +427,9 @@ import { useEffect, useRef, useState } from 'react';
                           <Button asChild variant="ghost" size="icon"><Link to={`/students/${s.id}`}><ExternalLink className="h-4 w-4" /></Link></Button>
                           {isAdmin && <>
                             <Button variant="ghost" size="icon" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => remove(s)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                            <Button variant="ghost" size="icon" title="الحذف متوقف مؤقتًا" onClick={() => remove(s)}>
+                              <Archive className="h-4 w-4 text-warning" />
+                            </Button>
                           </>}
                         </div>
                       </TableCell>

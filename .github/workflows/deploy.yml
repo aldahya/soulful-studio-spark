@@ -109,7 +109,7 @@ jobs:
           echo "Read-only SSH authentication and target path verified."
 
       - name: Deploy to Hostinger via SFTP
-        if: github.event_name == 'workflow_dispatch' && inputs.deploy == true && github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy == true && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/protect-student-history')
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
