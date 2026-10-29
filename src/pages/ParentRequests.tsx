@@ -92,7 +92,7 @@ function RequestCard({
   approving, rejecting, announcing,
 }: {
   req: ParentRequest; schoolName: string; ttsSupported: boolean;
-  onApprove:  (r: ParentRequest) => void;
+  onApprove:  (r: ParentRequest, announceAfterApproval?: boolean) => void;
   onReject:   (r: ParentRequest) => void;
   onAnnounce: (r: ParentRequest) => void;
   onWhatsApp: (r: ParentRequest) => void;
@@ -179,14 +179,27 @@ function RequestCard({
               <Button
                 size="sm"
                 className="bg-green-600 hover:bg-green-700 text-white text-xs gap-1"
-                onClick={() => onApprove(req)}
-                disabled={approving || announcing}
+                onClick={() => onApprove(req, req.request_type !== 'pickup')}
+                disabled={approving || rejecting}
               >
                 {approving
                   ? <Loader2 className="h-3 w-3 animate-spin" />
                   : <CheckCircle2 className="h-3 w-3" />}
-                موافقة + نداء
+                {req.request_type === 'pickup' ? 'موافقة' : 'موافقة + نداء'}
               </Button>
+              {req.request_type === 'pickup' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-blue-600 border-blue-200 hover:bg-blue-50 text-xs gap-1"
+                  onClick={() => onAnnounce(req)}
+                  disabled={announcing || approving || rejecting || !ttsSupported}
+                >
+                  {announcing
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />في طابور النداء...</>
+                    : <><Volume2 className="h-3 w-3" />نداء صوتي</>}
+                </Button>
+              )}
               <Button
                 size="sm" variant="outline"
                 className="text-green-600 border-green-200 hover:bg-green-50 text-xs gap-1"
@@ -200,7 +213,7 @@ function RequestCard({
                 size="sm" variant="outline"
                 className="text-red-600 border-red-200 hover:bg-red-50 text-xs gap-1"
                 onClick={() => onReject(req)}
-                disabled={approving || rejecting}
+                disabled={approving || rejecting || (req.request_type === 'pickup' && announcing)}
               >
                 {rejecting
                   ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -317,7 +330,7 @@ export default function ParentRequests() {
     };
   }, [load, schoolSlug]);
 
-  async function approve(req: ParentRequest) {
+  async function approve(req: ParentRequest, announceAfterApproval = true) {
     if (!user) return;
     setApproving((current) => new Set(current).add(req.id));
     try {
@@ -342,7 +355,7 @@ export default function ParentRequests() {
         duration: 7000,
         action: { label: 'عرض المؤكدة', onClick: () => setStatusFilter('approved') },
       });
-      await announceReq(approvedRequest);
+      if (announceAfterApproval) await announceReq(approvedRequest);
     } finally {
       setApproving((current) => {
         const next = new Set(current);
