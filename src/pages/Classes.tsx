@@ -26,7 +26,7 @@ export default function Classes() {
   async function load() {
     if (!schoolId) return;
     const { data: cs } = await supabase.from('classes').select('*').eq('school_id', schoolId).order('stage').order('name');
-    const { data: counts } = await supabase.from('students').select('class_id').eq('school_id', schoolId);
+    const { data: counts } = await supabase.from('students').select('class_id').eq('school_id', schoolId).is('archived_at', null);
     const map = new Map<string, number>();
     (counts ?? []).forEach((r: any) => { if (r.class_id) map.set(r.class_id, (map.get(r.class_id) ?? 0) + 1); });
     setClasses(((cs ?? []) as ClassRow[]).map((c) => ({ ...c, student_count: map.get(c.id) ?? 0 })));

@@ -94,6 +94,15 @@ import { useEffect, useMemo, useState } from 'react';
           .eq('date', date)
           .order('issued_at', { ascending: false }),
       ]);
+      if (att.error || perms.error) {
+        toast({
+          title: 'تعذر تحميل سجل الحضور',
+          description: att.error?.message ?? perms.error?.message,
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
 
       const a: Row[] = ((att.data ?? []) as any[]).map((r) => ({
         kind: 'attendance' as const,

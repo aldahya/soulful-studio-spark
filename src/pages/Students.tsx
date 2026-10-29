@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
   import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
   import { Badge } from '@/components/ui/badge';
-  import { Plus, Search, Pencil, Trash2, ExternalLink, Loader2, Upload, Download, Printer, FileDown, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, Upload, Download, Printer, FileDown, AlertTriangle } from 'lucide-react';
   import { STAGE_LABELS, type Stage } from '@/lib/i18n';
   import { useAuth } from '@/hooks/useAuth';
   import { Link } from 'react-router-dom';
@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from 'react';
     parent_phone: string | null;
     notes: string | null;
     barcode: string;
+    archived_at: string | null;
     classes?: { name: string } | null;
   }
   interface ClassRow { id: string; name: string; stage: Stage }
@@ -43,6 +44,7 @@ import { useEffect, useRef, useState } from 'react';
     const [search, setSearch] = useState('');
     const [stageFilter, setStageFilter] = useState<string>('all');
     const [classFilter, setClassFilter] = useState<string>('all');
+    const [showArchived, setShowArchived] = useState(false);
     const [alertOnly, setAlertOnly] = useState(false);
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState(false);
@@ -59,7 +61,7 @@ import { useEffect, useRef, useState } from 'react';
     }
   }, [isAdmin, teacherAllStages, teacherStage]);
 
-  useEffect(() => { document.title = 'الطلاب | نظام الضاحية'; if (schoolId) load(); }, [schoolId]);
+  useEffect(() => { document.title = 'الطلاب | نظام الضاحية'; if (schoolId) load(); }, [schoolId, showArchived]);
 
     async function load() {
     if (!schoolId) return;
@@ -69,29 +71,48 @@ import { useEffect, useRef, useState } from 'react';
       const monthStartISO = monthStart.toISOString().slice(0, 10);
       const todayISO = new Date().toISOString().slice(0, 10);
 
-      const [s, c, monthAtt] = await Promise.all([
-        supabase.from('students').select('*, classes(name)').eq('school_id', schoolId).order('full_name').limit(2000),
-        supabase.from('classes').select('id, name, stage').eq('school_id', schoolId).order('name'),
-        supabase.from('attendance_records').select('student_id, status').gte('date', monthStartISO).lte('date', todayISO),
-      ]);
-      setStudents((s.data ?? []) as Student[]);
-      setClasses((c.data ?? []) as ClassRow[]);
+      let studentQuery = (supabase as any).from('students')
+        .select('*, classes(name)')
+        .eq('school_id', schoolId)
+        .order('full_name')
+        .limit(2000);
+      studentQuery = showArchived
+        ? studentQuery.not('archived_at', 'is', null)
+        : studentQuery.is('archived_at', null);
 
-      // Build per-student attendance summary for current month
-      const summaryMap = new Map<string, AttSummary>();
-      (monthAtt.data ?? []).forEach((r: any) => {
-        const entry = summaryMap.get(r.student_id) ?? { present: 0, late: 0, absent: 0, total: 0, rate: null };
-        entry.total++;
-        if (r.status === 'present') entry.present++;
-        else if (r.status === 'late') entry.late++;
-        else if (r.status === 'absent') entry.absent++;
-        summaryMap.set(r.student_id, entry);
-      });
-      summaryMap.forEach((v, k) => {
-        v.rate = v.total > 0 ? Math.round(((v.present + v.late) / v.total) * 100) : null;
-        summaryMap.set(k, v);
-      });
-      setAttSummary(summaryMap);
+      const [s, c, monthAtt] = await Promise.all([
+        studentQuery,
+        supabase.from('classes').select('id, name, stage').eq('school_id', schoolId).order('name'),
+        supabase.from('attendance_records').select('student_id, status')
+          .eq('school_id', schoolId).gte('date', monthStartISO).lte('date', todayISO),
+      ]);
+      if (s.error) {
+        toast.error(`تعذر تحميل قائمة الطلاب: ${s.error.message}`);
+        setLoading(false);
+        return;
+      }
+      setStudents((s.data ?? []) as Student[]);
+      if (c.error) toast.error(`تعذر تحميل الفصول: ${c.error.message}`);
+      else setClasses((c.data ?? []) as ClassRow[]);
+      if (monthAtt.error) {
+        toast.error(`تعذر تحميل ملخص الحضور: ${monthAtt.error.message}`);
+      } else {
+        // Build per-student attendance summary for current month
+        const summaryMap = new Map<string, AttSummary>();
+        (monthAtt.data ?? []).forEach((r: any) => {
+          const entry = summaryMap.get(r.student_id) ?? { present: 0, late: 0, absent: 0, total: 0, rate: null };
+          entry.total++;
+          if (r.status === 'present') entry.present++;
+          else if (r.status === 'late') entry.late++;
+          else if (r.status === 'absent') entry.absent++;
+          summaryMap.set(r.student_id, entry);
+        });
+        summaryMap.forEach((v, k) => {
+          v.rate = v.total > 0 ? Math.round(((v.present + v.late) / v.total) * 100) : null;
+          summaryMap.set(k, v);
+        });
+        setAttSummary(summaryMap);
+      }
       setLoading(false);
     }
 
@@ -135,11 +156,33 @@ import { useEffect, useRef, useState } from 'react';
       setOpen(false); load();
     }
 
-    async function remove(s: Student) {
-      if (!confirm(`حذف الطالب ${s.full_name}؟`)) return;
-      const { error } = await supabase.from('students').delete().eq('id', s.id);
-      if (error) { toast.error(error.message); return; }
-      toast.success('تم الحذف'); load();
+    async function archiveStudent(s: Student) {
+      if (!confirm(`أرشفة الطالب ${s.full_name}؟ سيبقى سجل الحضور والتقارير محفوظًا.`)) return;
+      const { data, error } = await (supabase as any).from('students')
+        .update({ archived_at: new Date().toISOString() })
+        .eq('id', s.id)
+        .eq('school_id', schoolId)
+        .is('archived_at', null)
+        .select('id')
+        .maybeSingle();
+      if (error) { toast.error(`تعذرت أرشفة الطالب: ${error.message}`); return; }
+      if (!data) { toast.error('لم يتغير السجل؛ حدّث القائمة وحاول مرة أخرى'); return; }
+      toast.success('تمت أرشفة الطالب مع الاحتفاظ بسجلاته');
+      await load();
+    }
+
+    async function restoreStudent(s: Student) {
+      const { data, error } = await (supabase as any).from('students')
+        .update({ archived_at: null })
+        .eq('id', s.id)
+        .eq('school_id', schoolId)
+        .not('archived_at', 'is', null)
+        .select('id')
+        .maybeSingle();
+      if (error) { toast.error(`تعذرت استعادة الطالب: ${error.message}`); return; }
+      if (!data) { toast.error('لم يتغير السجل؛ حدّث القائمة وحاول مرة أخرى'); return; }
+      toast.success('تمت استعادة الطالب إلى القائمة');
+      await load();
     }
 
     function downloadTemplate() {
@@ -247,7 +290,8 @@ import { useEffect, useRef, useState } from 'react';
     function toggleSelect(id: string) {
       setSelected((prev) => {
         const next = new Set(prev);
-        next.has(id) ? next.delete(id) : next.add(id);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
         return next;
       });
     }
@@ -300,10 +344,17 @@ import { useEffect, useRef, useState } from 'react';
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-extrabold">الطلاب</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{students.length} طالب مسجَّل</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {students.length} طالب {showArchived ? 'مؤرشف' : 'مسجَّل'}
+              {!showArchived && ' — الأرشفة تحفظ سجل الحضور والتقارير'}
+            </p>
           </div>
           {isAdmin && (
             <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setShowArchived((value) => !value)} className="gap-2">
+                {showArchived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                {showArchived ? 'عرض الطلاب الحاليين' : 'عرض المؤرشفين'}
+              </Button>
               <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleImport(e.target.files[0])} />
               <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={importing} className="gap-2">
                 {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} استيراد Excel
@@ -388,7 +439,11 @@ import { useEffect, useRef, useState } from 'react';
                       <TableCell className="font-mono text-xs">{s.student_number}</TableCell>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
-                          {hasAlert && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" title={`غياب ${absenceRate}%`} />}
+                          {hasAlert && (
+                            <span title={`غياب ${absenceRate}%`}>
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                            </span>
+                          )}
                           {s.full_name}
                         </div>
                       </TableCell>
@@ -429,7 +484,15 @@ import { useEffect, useRef, useState } from 'react';
                           <Button asChild variant="ghost" size="icon"><Link to={`/students/${s.id}`}><ExternalLink className="h-4 w-4" /></Link></Button>
                           {isAdmin && <>
                             <Button variant="ghost" size="icon" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => remove(s)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                            {showArchived ? (
+                              <Button variant="ghost" size="icon" title="استعادة الطالب" onClick={() => restoreStudent(s)}>
+                                <ArchiveRestore className="h-4 w-4 text-primary" />
+                              </Button>
+                            ) : (
+                              <Button variant="ghost" size="icon" title="أرشفة الطالب" onClick={() => archiveStudent(s)}>
+                                <Archive className="h-4 w-4 text-warning" />
+                              </Button>
+                            )}
                           </>}
                         </div>
                       </TableCell>

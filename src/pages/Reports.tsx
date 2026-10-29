@@ -67,8 +67,10 @@ export default function Reports() {
       supabase.from('classes').select('id, name, stage').eq('school_id', schoolId).order('name'),
       supabase.from('students').select('id, full_name, stage, class_id, parent_phone').eq('school_id', schoolId).order('full_name').limit(2000),
     ]).then(([c, s]) => {
-      setClasses((c.data ?? []) as ClassRow[]);
-      setStudents((s.data ?? []) as StudentRow[]);
+      if (c.error) toast.error(`تعذر تحميل الفصول: ${c.error.message}`);
+      else setClasses((c.data ?? []) as ClassRow[]);
+      if (s.error) toast.error(`تعذر تحميل قائمة الطلاب: ${s.error.message}`);
+      else setStudents((s.data ?? []) as StudentRow[]);
     });
     load();
   }, [schoolId]);
@@ -91,6 +93,11 @@ export default function Reports() {
         .eq('school_id', schoolId!)
         .gte('date', from).lte('date', to).order('date', { ascending: false }),
     ]);
+    if (att.error || perms.error) {
+      toast.error(`تعذر تحميل بيانات التقرير: ${att.error?.message ?? perms.error?.message}`);
+      setLoading(false);
+      return;
+    }
 
     const a: Entry[] = ((att.data ?? []) as any[]).map((r) => ({
       id: 'a:' + r.id, date: r.date, status: r.status,
@@ -358,7 +365,7 @@ export default function Reports() {
       const endDate = new Date(start); endDate.setMonth(endDate.getMonth() + 1);
       const end = endDate.toISOString().slice(0, 10);
 
-      let studentQuery = supabase.from('students').select('id, full_name, student_number, parent_phone, stage').eq('school_id', schoolId ?? '').order('full_name').limit(2000);
+      let studentQuery = supabase.from('students').select('id, full_name, student_number, parent_phone, stage').eq('school_id', schoolId ?? '').is('archived_at', null).order('full_name').limit(2000);
       if (!isAdmin && teacherStage) studentQuery = studentQuery.eq('stage', teacherStage);
       // فلترة لطالب محدد إن اختير
       if (monthlyStudent !== 'all') studentQuery = studentQuery.eq('id', monthlyStudent);

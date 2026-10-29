@@ -96,6 +96,7 @@ export default function Permissions() {
         .from('students')
         .select('id, full_name, student_number, barcode')
         .eq('school_id', schoolId)
+        .is('archived_at', null)
         .ilike('full_name', `${safeTerm}%`);
 
       if (!isAdmin && teacherStage) query = query.eq('stage', teacherStage);
@@ -151,6 +152,7 @@ export default function Permissions() {
       if (!targetStudent) {
         const { data, error } = await supabase
           .from('students').select('id, full_name, student_number, barcode')
+          .is('archived_at', null)
           .eq('barcode', trimmed).maybeSingle();
         if (error) { toast.error(error.message); return; }
         if (!data) { toast.error('باركود غير معروف'); return; }

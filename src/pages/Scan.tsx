@@ -99,6 +99,7 @@ export default function Scan() {
         .from('students')
         .select('id, full_name, student_number, stage, classes(name)')
         .eq('school_id', schoolId)
+        .is('archived_at', null)
         .ilike('full_name', `${safeTerm}%`);
 
       if (!isAdmin && teacherStage) query = query.eq('stage', teacherStage);
@@ -213,6 +214,7 @@ export default function Scan() {
         const { data, error } = await supabase
           .from('students').select(studentSelection)
           .eq('school_id', schoolId)
+          .is('archived_at', null)
           .eq('id', selectedStudentId)
           .maybeSingle();
 
@@ -227,6 +229,7 @@ export default function Scan() {
         const { data: barcodeStudent, error: barcodeError } = await supabase
           .from('students').select(studentSelection)
           .eq('school_id', schoolId)
+          .is('archived_at', null)
           .eq('barcode', identifier.toUpperCase())
           .maybeSingle();
 
@@ -242,6 +245,7 @@ export default function Scan() {
           const { data: numberStudent, error: numberError } = await supabase
             .from('students').select(studentSelection)
             .eq('school_id', schoolId)
+            .is('archived_at', null)
             .eq('student_number', identifier)
             .maybeSingle();
 

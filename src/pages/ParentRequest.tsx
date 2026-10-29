@@ -118,6 +118,7 @@ export default function ParentRequest() {
         .from('students')
         .select('student_number, full_name, parent_phone')
         .eq('parent_phone', clean);
+      query = query.is('archived_at', null);
 
       if (schoolId) {
         query = query.eq('school_id', schoolId);
