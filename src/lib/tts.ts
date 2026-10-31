@@ -15,9 +15,20 @@ const SUPABASE_URL    = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON   = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const TTS_ENDPOINT    = `${SUPABASE_URL}/functions/v1/tts-proxy`;
 
-function buildText(name: string, gender: 'male' | 'female' = 'male'): string {
-  const prefix = gender === 'female' ? 'الطالبة' : 'الطالب';
-  return `${prefix} ${name}، الرجاء التوجه إلى بوابة الخروج.`;
+export function normalizeStudentNameForSpeech(name: string): string {
+  return name
+    .normalize('NFC')
+    .replace(/[\u0640]/g, '')
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+    .replace(/عبد(?=ال)/g, 'عبد ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function buildAnnouncementText(name: string, gender: 'male' | 'female' = 'male'): string {
+  const prefix = gender === 'female' ? 'الطَّالِبَةُ' : 'الطَّالِبُ';
+  const spokenName = normalizeStudentNameForSpeech(name);
+  return `${prefix}، ${spokenName}، يُرْجَى التَّوَجُّهُ إِلَى بَوَّابَةِ الْخُرُوجِ.`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -90,7 +101,7 @@ function speakFallback(text: string): Promise<void> {
 // ===== تشغيل نداء واحد =====
 async function playAnnouncement(opts: AnnounceOptions): Promise<void> {
   const { name, gender = 'male', times = 3, pauseMs = 1200 } = opts;
-  const text = buildText(name, gender);
+  const text = buildAnnouncementText(name, gender);
 
   for (let i = 0; i < times; i++) {
     try {
