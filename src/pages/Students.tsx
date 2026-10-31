@@ -11,6 +11,12 @@ import { useEffect, useRef, useState } from 'react';
   import { Badge } from '@/components/ui/badge';
 import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, Upload, Download, Printer, FileDown, AlertTriangle } from 'lucide-react';
   import { normalizeSaudiPhoneInput, STAGE_LABELS, type Stage } from '@/lib/i18n';
+import {
+  defaultStudentGenderForSchool,
+  parseStudentGender,
+  studentGenderLabel,
+  type StudentGender,
+} from '@/lib/studentGender';
   import { useAuth } from '@/hooks/useAuth';
   import { Link } from 'react-router-dom';
   import { toast } from 'sonner';
@@ -26,18 +32,40 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
     stage: Stage;
     class_id: string | null;
     parent_phone: string | null;
+    gender: StudentGender | null;
     notes: string | null;
     barcode: string;
     archived_at: string | null;
     classes?: { name: string } | null;
   }
+  interface StudentForm {
+    student_number: string;
+    full_name: string;
+    stage: Stage;
+    class_id: string;
+    parent_phone: string;
+    gender: StudentGender | '';
+    notes: string;
+  }
   interface ClassRow { id: string; name: string; stage: Stage }
   interface AttSummary { present: number; late: number; absent: number; total: number; rate: number | null }
+
+  function createStudentForm(schoolSlug?: string | null): StudentForm {
+    return {
+      student_number: '',
+      full_name: '',
+      stage: 'primary',
+      class_id: '',
+      parent_phone: '',
+      gender: defaultStudentGenderForSchool(schoolSlug) ?? '',
+      notes: '',
+    };
+  }
 
   const ABSENCE_ALERT_THRESHOLD = 25; // % absence triggers warning
 
   export default function Students() {
-  const { isAdmin, schoolId, teacherStage, teacherAllStages } = useAuth();
+  const { isAdmin, schoolId, school, teacherStage, teacherAllStages } = useAuth();
     const settings = useSchoolSettings();
     const [students, setStudents] = useState<Student[]>([]);
     const [classes, setClasses] = useState<ClassRow[]>([]);
@@ -51,7 +79,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState<Student | null>(null);
-    const [form, setForm] = useState({ student_number: '', full_name: '', stage: 'primary' as Stage, class_id: '', parent_phone: '', notes: '' });
+    const [form, setForm] = useState<StudentForm>(() => createStudentForm(school?.slug));
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const fileRef = useRef<HTMLInputElement>(null);
     const [importing, setImporting] = useState(false);
@@ -149,7 +177,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
 
     function openNew() {
       setEditing(null);
-      setForm({ student_number: nextStudentNumber(), full_name: '', stage: 'primary', class_id: '', parent_phone: '', notes: '' });
+      setForm({ ...createStudentForm(school?.slug), student_number: nextStudentNumber() });
       setOpen(true);
     }
     function openEdit(s: Student) {
@@ -157,12 +185,14 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
       setForm({
         student_number: s.student_number, full_name: s.full_name, stage: s.stage,
         class_id: s.class_id ?? '', parent_phone: normalizeSaudiPhoneInput(s.parent_phone ?? ''), notes: s.notes ?? '',
+        gender: s.gender ?? defaultStudentGenderForSchool(school?.slug) ?? '',
       });
       setOpen(true);
     }
 
     async function save() {
       if (!form.full_name) { toast.error('الاسم مطلوب'); return; }
+      if (!form.gender) { toast.error('اختر جنس الطالب أو الطالبة'); return; }
       const studentNumber = form.student_number || nextStudentNumber();
       const payload = {
         student_number: studentNumber,
@@ -170,6 +200,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
         stage: form.stage,
         class_id: form.class_id || null,
         parent_phone: normalizeSaudiPhoneInput(form.parent_phone) || null,
+        gender: form.gender,
         notes: form.notes || null,
         barcode: `ALD-${studentNumber}`,
       };
@@ -220,7 +251,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
 
     function downloadTemplate() {
       const ws = XLSX.utils.json_to_sheet([
-        { 'الاسم الكامل': 'أحمد محمد', 'رقم الطالب': '1001', 'المرحلة': 'ابتدائي', 'الفصل': '', 'هاتف ولي الأمر': '0555555555', 'ملاحظات': '' },
+        { 'الاسم الكامل': 'أحمد محمد', 'رقم الطالب': '1001', 'الجنس': 'ذكر', 'المرحلة': 'ابتدائي', 'الفصل': '', 'هاتف ولي الأمر': '0555555555', 'ملاحظات': '' },
       ]);
       (ws as any)['!views'] = [{ RTL: true }];
       const wb = XLSX.utils.book_new();
@@ -234,6 +265,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
         return {
           'رقم الطالب': s.student_number,
           'الاسم الكامل': s.full_name,
+          'الجنس': studentGenderLabel(s.gender),
           'المرحلة': STAGE_LABELS[s.stage],
           'الفصل': s.classes?.name ?? '',
           'هاتف ولي الأمر': s.parent_phone ?? '',
@@ -270,6 +302,12 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
         rows.forEach((r, i) => {
           const name = String(r['الاسم الكامل'] ?? r['الاسم'] ?? r['name'] ?? '').trim();
           if (!name) { errors.push(`السطر ${i + 2}: لا يوجد اسم`); return; }
+          const genderRaw = r['الجنس'] ?? r['جنس الطالب'] ?? r.gender;
+          const gender = parseStudentGender(genderRaw) ?? defaultStudentGenderForSchool(school?.slug);
+          if (!gender) {
+            errors.push(`السطر ${i + 2}: الجنس مطلوب في هذا الفرع (ذكر أو أنثى)`);
+            return;
+          }
           const stageRaw = String(r['المرحلة'] ?? r['stage'] ?? 'ابتدائي').trim();
           const stage = stageReverse[stageRaw] ?? 'primary';
           const numRaw = String(r['رقم الطالب'] ?? r['number'] ?? '').trim();
@@ -279,6 +317,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
           payloads.push({
             student_number: studentNumber,
             full_name: name,
+            gender,
             stage,
             class_id: cls?.id ?? null,
             parent_phone: normalizeSaudiPhoneInput(String(r['هاتف ولي الأمر'] ?? r['phone'] ?? '').trim()) || null,
@@ -287,7 +326,10 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
           });
         });
 
-        if (!payloads.length) { toast.error('لا توجد صفوف صالحة'); return; }
+        if (!payloads.length) {
+          toast.error(errors.length ? errors.slice(0, 3).join(' | ') : 'لا توجد صفوف صالحة');
+          return;
+        }
 
         const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
         const existingNames = new Set(students.map((s) => normalize(s.full_name)));
@@ -562,6 +604,19 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
                 <Input value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })} />
               </div>
               <div className="space-y-2"><Label>الاسم الكامل</Label><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></div>
+              <div className="space-y-2">
+                <Label>جنس الطالب</Label>
+                <Select
+                  value={form.gender}
+                  onValueChange={(value) => setForm({ ...form, gender: value as StudentGender })}
+                >
+                  <SelectTrigger><SelectValue placeholder="اختر ذكر أو أنثى" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">ذكر</SelectItem>
+                    <SelectItem value="female">أنثى</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2">
                 <Label>المرحلة</Label>
                 <Select value={form.stage} onValueChange={(v) => setForm({ ...form, stage: v as Stage })}>

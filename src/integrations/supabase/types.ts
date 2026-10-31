@@ -188,6 +188,7 @@ export type Database = {
         Row: {
           created_at: string
           full_name: string
+          gender: "male" | "female" | null
           id: string
           updated_at: string
           user_id: string
@@ -302,6 +303,7 @@ export type Database = {
           class_id?: string | null
           created_at?: string
           full_name: string
+          gender?: "male" | "female" | null
           id?: string
           notes?: string | null
           parent_phone?: string | null
@@ -315,6 +317,7 @@ export type Database = {
           class_id?: string | null
           created_at?: string
           full_name?: string
+          gender?: "male" | "female" | null
           id?: string
           notes?: string | null
           parent_phone?: string | null

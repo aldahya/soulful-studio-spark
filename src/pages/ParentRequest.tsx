@@ -62,6 +62,7 @@ const SCHOOL_META: Record<string, { name: string; subtitle: string; color: strin
 };
 
 interface StudentOption {
+  id?: string;
   student_number: string;
   full_name: string;
   parent_phone: string;
@@ -133,7 +134,7 @@ export default function ParentRequest() {
       const { data, error } = await withActiveStudentFilter((filterArchived) => {
         let query = (supabase as any)
           .from('students')
-          .select('student_number, full_name, parent_phone')
+          .select('id, student_number, full_name, parent_phone')
           .in('parent_phone', candidates)
           .eq('school_id', schoolId);
         if (filterArchived) query = query.is('archived_at', null);
@@ -254,6 +255,7 @@ export default function ParentRequest() {
       if (usingPhoneLookup) {
         const rows = selectedList.map((s) => ({
           ...commonFields,
+          student_id: s.id ?? null,
           student_name:   s.full_name,
           student_number: s.student_number,
         }));
@@ -263,6 +265,7 @@ export default function ParentRequest() {
       } else {
         const { error } = await (supabase as any).from('parent_requests').insert({
           ...commonFields,
+          student_id: null,
           student_name:   studentName.trim(),
           student_number: '—',
         });

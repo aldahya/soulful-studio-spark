@@ -17,6 +17,11 @@ import {
 import { toast } from 'sonner';
 import { announceStudent, isTTSSupported, getAvailableArabicVoices } from '@/lib/tts';
 import {
+  defaultStudentGenderForSchool,
+  parseStudentGender,
+  type StudentGender,
+} from '@/lib/studentGender';
+import {
   approveAdminPermissionRequest,
   rejectAdminPermissionRequest,
 } from '@/lib/adminPermissionRequests';
@@ -282,7 +287,7 @@ function RequestCard({
 }
 
 export default function ParentRequests() {
-  const { user, school } = useAuth();
+  const { user, school, schoolId } = useAuth();
   const [searchParams] = useSearchParams();
   const settings   = useSchoolSettings();
   const schoolSlug = school?.slug ?? localStorage.getItem('school_slug') ?? 'dahya-boys';
@@ -470,7 +475,30 @@ export default function ParentRequests() {
     setAnnouncing((current) => new Set(current).add(req.id));
     try {
       const announcementSchoolSlug = req.school_slug || schoolSlug;
-      const announcementGender = announcementSchoolSlug === 'dahya-girls' ? 'female' : 'male';
+      let announcementGender: StudentGender | null = null;
+      if (req.student_id) {
+        if (!schoolId) {
+          toast.error('تعذر التحقق من سجل الطالب المرتبط بالطلب');
+          return;
+        }
+        const { data: student, error } = await (supabase as any)
+          .from('students')
+          .select('gender')
+          .eq('id', req.student_id)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        if (error) {
+          toast.error('تعذر قراءة جنس الطالب من سجله');
+          console.error('student gender lookup error:', error);
+          return;
+        }
+        announcementGender = parseStudentGender(student?.gender);
+      }
+      announcementGender ??= defaultStudentGenderForSchool(announcementSchoolSlug);
+      if (!announcementGender) {
+        toast.error('حدد جنس الطالب في ملفه قبل النداء الصوتي');
+        return;
+      }
       await announceStudent({
         name: req.student_name,
         gender: announcementGender,
