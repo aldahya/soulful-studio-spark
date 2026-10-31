@@ -69,6 +69,17 @@ export function phoneLookupCandidates(phone?: string | null): string[] {
   return [...new Set([digits, local, national, `966${national}`, `00966${national}`])];
 }
 
+export function normalizeSaudiPhoneInput(phone: string): string {
+  let digits = digitsOnly(phone);
+  if (!digits) return '';
+
+  if (digits.startsWith('00966')) digits = digits.slice(5);
+  else if (digits.startsWith('966')) digits = digits.slice(3);
+
+  if (!digits.startsWith('0')) digits = `0${digits}`;
+  return digits.slice(0, 10);
+}
+
 export function whatsAppLink(phone: string | null | undefined, message?: string): string | null {
   const num = toWhatsAppNumber(phone);
   // E.164 sanity check: 8–15 digits, no leading zero

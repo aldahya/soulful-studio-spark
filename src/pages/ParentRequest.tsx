@@ -12,7 +12,7 @@ import { CheckCircle2, Loader2, School, ClipboardList, Phone, Search, Zap, UserC
 import { toast } from 'sonner';
 import { SCHOOL_LOGOS } from '@/lib/school';
 import { withActiveStudentFilter } from '@/lib/student-archive';
-import { phoneLookupCandidates } from '@/lib/i18n';
+import { normalizeSaudiPhoneInput, phoneLookupCandidates } from '@/lib/i18n';
 
 const REASONS = [
   'مراجعة طبية',
@@ -166,12 +166,13 @@ export default function ParentRequest() {
   }
 
   function handlePhoneChange(val: string) {
-    setParentPhone(val);
+    const localPhone = normalizeSaudiPhoneInput(val);
+    setParentPhone(localPhone);
     setPhoneLookupDone(false);
     setFoundStudents([]);
     clearStudentSelection();
     if (phoneTimer.current) clearTimeout(phoneTimer.current);
-    phoneTimer.current = setTimeout(() => lookupByPhone(val), 800);
+    phoneTimer.current = setTimeout(() => lookupByPhone(localPhone), 800);
   }
 
   function applyStudent(s: StudentOption) {
@@ -461,7 +462,8 @@ export default function ParentRequest() {
                     placeholder="05XXXXXXXX"
                     dir="ltr"
                     type="tel"
-                    inputMode="tel"
+                    inputMode="numeric"
+                    autoComplete="tel-national"
                     required
                     className={`pl-10 ${phoneLookupDone ? 'border-emerald-400 bg-emerald-50/60' : ''}`}
                   />
@@ -471,6 +473,7 @@ export default function ParentRequest() {
                       : <Phone className="h-4 w-4" />}
                   </div>
                 </div>
+                <p className="text-xs text-muted-foreground">يبدأ الرقم المحلي بـ0، مثل 05XXXXXXXX. يمكن لصق رقم بصيغة +966 أيضًا.</p>
                 {phoneLookupDone && foundStudents.length > 0 && (
                   <p className="text-xs font-medium text-emerald-600">
                     ✓ تم العثور على {foundStudents.length > 1 ? `${foundStudents.length} طلاب` : 'طالب'} مرتبط بهذا الرقم في المدرسة
