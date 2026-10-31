@@ -459,7 +459,7 @@ export default function ParentRequest() {
                   <Input
                     value={parentPhone}
                     onChange={(e) => handlePhoneChange(e.target.value)}
-                    placeholder="05XXXXXXXX"
+                    placeholder="9665XXXXXXXX"
                     dir="ltr"
                     type="tel"
                     inputMode="numeric"
@@ -473,7 +473,7 @@ export default function ParentRequest() {
                       : <Phone className="h-4 w-4" />}
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">يبدأ الرقم المحلي بـ0، مثل 05XXXXXXXX. يمكن لصق رقم بصيغة +966 أيضًا.</p>
+                <p className="text-xs text-muted-foreground">يُحفظ الرقم بصيغة 966، مثل 9665XXXXXXXX. يمكن إدخال الرقم المحلي أو لصق +966.</p>
                 {phoneLookupDone && foundStudents.length > 0 && (
                   <p className="text-xs font-medium text-emerald-600">
                     ✓ تم العثور على {foundStudents.length > 1 ? `${foundStudents.length} طلاب` : 'طالب'} مرتبط بهذا الرقم في المدرسة

@@ -19,18 +19,19 @@ describe('phoneLookupCandidates', () => {
 });
 
 describe('normalizeSaudiPhoneInput', () => {
-  it('adds the local leading zero for Saudi mobile input', () => {
-    expect(normalizeSaudiPhoneInput('509331919')).toBe('0509331919');
+  it('stores local Saudi mobile input with the 966 country code', () => {
+    expect(normalizeSaudiPhoneInput('509331919')).toBe('966509331919');
+    expect(normalizeSaudiPhoneInput('0509331919')).toBe('966509331919');
   });
 
-  it('keeps a local zero and converts pasted international Saudi numbers', () => {
-    expect(normalizeSaudiPhoneInput('0509331919')).toBe('0509331919');
-    expect(normalizeSaudiPhoneInput('+966 50 933 1919')).toBe('0509331919');
-    expect(normalizeSaudiPhoneInput('00966 50 933 1919')).toBe('0509331919');
+  it('keeps international Saudi input in canonical 966 format', () => {
+    expect(normalizeSaudiPhoneInput('966 50 933 1919')).toBe('966509331919');
+    expect(normalizeSaudiPhoneInput('+966 50 933 1919')).toBe('966509331919');
+    expect(normalizeSaudiPhoneInput('00966 50 933 1919')).toBe('966509331919');
   });
 
-  it('normalizes Arabic numerals and limits local numbers to ten digits', () => {
-    expect(normalizeSaudiPhoneInput('٥٠٩٣٣١٩١٩')).toBe('0509331919');
-    expect(normalizeSaudiPhoneInput('05093319199')).toBe('0509331919');
+  it('normalizes Arabic numerals and limits canonical numbers to twelve digits', () => {
+    expect(normalizeSaudiPhoneInput('٥٠٩٣٣١٩١٩')).toBe('966509331919');
+    expect(normalizeSaudiPhoneInput('9665093319199')).toBe('966509331919');
   });
 });

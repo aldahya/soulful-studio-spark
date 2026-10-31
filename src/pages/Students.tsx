@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'react';
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
   import { Badge } from '@/components/ui/badge';
 import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, Upload, Download, Printer, FileDown, AlertTriangle } from 'lucide-react';
-  import { STAGE_LABELS, type Stage } from '@/lib/i18n';
+  import { normalizeSaudiPhoneInput, STAGE_LABELS, type Stage } from '@/lib/i18n';
   import { useAuth } from '@/hooks/useAuth';
   import { Link } from 'react-router-dom';
   import { toast } from 'sonner';
@@ -156,7 +156,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
       setEditing(s);
       setForm({
         student_number: s.student_number, full_name: s.full_name, stage: s.stage,
-        class_id: s.class_id ?? '', parent_phone: s.parent_phone ?? '', notes: s.notes ?? '',
+        class_id: s.class_id ?? '', parent_phone: normalizeSaudiPhoneInput(s.parent_phone ?? ''), notes: s.notes ?? '',
       });
       setOpen(true);
     }
@@ -169,7 +169,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
         full_name: form.full_name,
         stage: form.stage,
         class_id: form.class_id || null,
-        parent_phone: form.parent_phone || null,
+        parent_phone: normalizeSaudiPhoneInput(form.parent_phone) || null,
         notes: form.notes || null,
         barcode: `ALD-${studentNumber}`,
       };
@@ -281,7 +281,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
             full_name: name,
             stage,
             class_id: cls?.id ?? null,
-            parent_phone: String(r['هاتف ولي الأمر'] ?? r['phone'] ?? '').trim() || null,
+            parent_phone: normalizeSaudiPhoneInput(String(r['هاتف ولي الأمر'] ?? r['phone'] ?? '').trim()) || null,
             notes: String(r['ملاحظات'] ?? r['notes'] ?? '').trim() || null,
             barcode: `ALD-${studentNumber}`,
           });
@@ -581,7 +581,18 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>هاتف ولي الأمر</Label><Input value={form.parent_phone} onChange={(e) => setForm({ ...form, parent_phone: e.target.value })} dir="ltr" /></div>
+              <div className="space-y-2">
+                <Label>هاتف ولي الأمر</Label>
+                <Input
+                  value={form.parent_phone}
+                  onChange={(e) => setForm({ ...form, parent_phone: normalizeSaudiPhoneInput(e.target.value) })}
+                  placeholder="9665XXXXXXXX"
+                  dir="ltr"
+                  type="tel"
+                  inputMode="numeric"
+                />
+                <p className="text-xs text-muted-foreground">يُحفظ الرقم دائمًا بصيغة 966.</p>
+              </div>
               <div className="space-y-2 sm:col-span-2"><Label>ملاحظات</Label><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
             </div>
             <DialogFooter className="mt-4 gap-2">

@@ -73,11 +73,17 @@ export function normalizeSaudiPhoneInput(phone: string): string {
   let digits = digitsOnly(phone);
   if (!digits) return '';
 
-  if (digits.startsWith('00966')) digits = digits.slice(5);
-  else if (digits.startsWith('966')) digits = digits.slice(3);
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits === '9' || digits === '96') return digits;
+  if (digits === '0') return '966';
 
-  if (!digits.startsWith('0')) digits = `0${digits}`;
-  return digits.slice(0, 10);
+  if (digits.startsWith('966')) {
+    const national = digits.slice(3).replace(/^0+/, '');
+    return `966${national}`.slice(0, 12);
+  }
+
+  const national = digits.replace(/^0+/, '');
+  return national ? `966${national}`.slice(0, 12) : '';
 }
 
 export function whatsAppLink(phone: string | null | undefined, message?: string): string | null {
