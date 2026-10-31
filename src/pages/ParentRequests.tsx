@@ -469,7 +469,13 @@ export default function ParentRequests() {
 
     setAnnouncing((current) => new Set(current).add(req.id));
     try {
-      await announceStudent({ name: req.student_name, times: 3 });
+      const announcementSchoolSlug = req.school_slug || schoolSlug;
+      const announcementGender = announcementSchoolSlug === 'dahya-girls' ? 'female' : 'male';
+      await announceStudent({
+        name: req.student_name,
+        gender: announcementGender,
+        times: 3,
+      });
       const { data, error } = await (supabase as any)
         .from('parent_requests')
         .update({ announced: true, announced_at: new Date().toISOString() })
