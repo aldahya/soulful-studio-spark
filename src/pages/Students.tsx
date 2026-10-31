@@ -526,13 +526,18 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
                       <TableCell><Checkbox checked={selected.has(s.id)} onCheckedChange={() => toggleSelect(s.id)} /></TableCell>
                       <TableCell className="font-mono text-xs">{s.student_number}</TableCell>
                       <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          {hasAlert && (
-                            <span title={`غياب ${absenceRate}%`}>
-                              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-                            </span>
-                          )}
-                          {s.full_name}
+                        <div className="flex flex-col items-start gap-1">
+                          <div className="flex items-center gap-2">
+                            {hasAlert && (
+                              <span title={`غياب ${absenceRate}%`}>
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                              </span>
+                            )}
+                            <span>{s.full_name}</span>
+                          </div>
+                          <Badge variant={s.gender ? 'secondary' : 'outline'} className="text-[10px] font-normal">
+                            {s.gender ? studentGenderLabel(s.gender) : 'غير محدد'}
+                          </Badge>
                         </div>
                       </TableCell>
                       <TableCell><Badge variant="secondary">{STAGE_LABELS[s.stage]}</Badge></TableCell>
