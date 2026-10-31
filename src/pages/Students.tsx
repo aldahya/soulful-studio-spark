@@ -508,7 +508,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
                     <Checkbox checked={filtered.length > 0 && filtered.every((s) => selected.has(s.id))} onCheckedChange={() => toggleAll(filtered)} />
                   </TableHead>
                   <TableHead>رقم الطالب</TableHead>
-                  <TableHead>الاسم</TableHead>
+                  <TableHead>الاسم / الجنس</TableHead>
                   <TableHead>المرحلة</TableHead>
                   <TableHead>الفصل</TableHead>
                   <TableHead>حضور الشهر</TableHead>
@@ -525,7 +525,7 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
                     <TableRow key={s.id} data-state={selected.has(s.id) ? 'selected' : undefined} className={hasAlert ? 'bg-destructive/5' : undefined}>
                       <TableCell><Checkbox checked={selected.has(s.id)} onCheckedChange={() => toggleSelect(s.id)} /></TableCell>
                       <TableCell className="font-mono text-xs">{s.student_number}</TableCell>
-                      <TableCell className="font-medium">
+                      <TableCell className="min-w-[190px] whitespace-normal font-medium">
                         <div className="flex flex-col items-start gap-1">
                           <div className="flex items-center gap-2">
                             {hasAlert && (
@@ -533,11 +533,14 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
                                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
                               </span>
                             )}
-                            <span>{s.full_name}</span>
+                            <span className="break-words">{s.full_name}</span>
                           </div>
-                          <Badge variant={s.gender ? 'secondary' : 'outline'} className="text-[10px] font-normal">
-                            {s.gender ? studentGenderLabel(s.gender) : 'غير محدد'}
-                          </Badge>
+                          <div className="text-xs font-normal text-muted-foreground">
+                            <span>الجنس: </span>
+                            <span className={s.gender ? 'font-medium text-foreground' : 'font-medium text-amber-700'}>
+                              {s.gender ? studentGenderLabel(s.gender) : 'غير محدد'}
+                            </span>
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell><Badge variant="secondary">{STAGE_LABELS[s.stage]}</Badge></TableCell>
