@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
   import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
   import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, Upload, Download, Printer, FileDown, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Pencil, Archive, ArchiveRestore, ExternalLink, Loader2, Upload, Download, Printer, FileDown, AlertTriangle, Volume2 } from 'lucide-react';
   import { normalizeSaudiPhoneInput, STAGE_LABELS, type Stage } from '@/lib/i18n';
 import {
   defaultStudentGenderForSchool,
@@ -24,6 +24,7 @@ import {
   import { downloadBarcodeSVG, printBarcodes, stageLabel } from '@/lib/barcode';
   import { useSchoolSettings } from '@/lib/school';
 import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/student-archive';
+import { announceStudent } from '@/lib/tts';
 
   interface Student {
     id: string;
@@ -82,6 +83,8 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
     const [form, setForm] = useState<StudentForm>(() => createStudentForm(school?.slug));
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const fileRef = useRef<HTMLInputElement>(null);
+  const announcingRef = useRef(false);
+  const [announcingStudentId, setAnnouncingStudentId] = useState<string | null>(null);
     const [importing, setImporting] = useState(false);
 
   // قيّد فلتر المرحلة للمعلمين غير المسموح لهم برؤية كل المراحل
@@ -188,6 +191,27 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
         gender: s.gender ?? defaultStudentGenderForSchool(school?.slug) ?? '',
       });
       setOpen(true);
+    }
+
+    async function announceStudentOnce(student: Student) {
+      const gender = parseStudentGender(student.gender) ?? defaultStudentGenderForSchool(school?.slug);
+      if (!gender) {
+        toast.error('حدد جنس الطالب في ملفه قبل النداء الصوتي');
+        return;
+      }
+      if (announcingRef.current) return;
+
+      announcingRef.current = true;
+      setAnnouncingStudentId(student.id);
+      try {
+        await announceStudent({ name: student.full_name, gender, times: 1 });
+        toast.success(`تم نداء ${gender === 'female' ? 'الطالبة' : 'الطالب'} مرة واحدة`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'تعذر إتمام النداء الصوتي');
+      } finally {
+        announcingRef.current = false;
+        setAnnouncingStudentId(null);
+      }
     }
 
     async function save() {
@@ -534,6 +558,22 @@ import { isArchiveColumnUnavailable, withActiveStudentFilter } from '@/lib/stude
                               </span>
                             )}
                             <span className="break-words">{s.full_name}</span>
+                            {!showArchived && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 text-primary"
+                                title={`نداء ${s.full_name} مرة واحدة`}
+                                aria-label={`نداء ${s.full_name} مرة واحدة`}
+                                disabled={announcingStudentId !== null}
+                                onClick={() => announceStudentOnce(s)}
+                              >
+                                {announcingStudentId === s.id
+                                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                                  : <Volume2 className="h-4 w-4" />}
+                              </Button>
+                            )}
                           </div>
                           <div className="text-xs font-normal text-muted-foreground">
                             <span>الجنس: </span>
