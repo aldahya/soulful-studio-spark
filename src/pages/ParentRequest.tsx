@@ -107,7 +107,7 @@ export default function ParentRequest() {
     document.title = !hasRequestType
       ? `خدمات أولياء الأمور — ${school.name}`
       : isPickup
-        ? `استلام سريع — ${school.name}`
+        ? `خروج الطالب — ${school.name}`
         : `طلب استئذان — ${school.name}`;
   }, [school.name, isPickup, hasRequestType]);
 
@@ -364,7 +364,7 @@ export default function ParentRequest() {
               <span className="flex items-center gap-3 text-right">
                 <Zap className="h-5 w-5" />
                 <span>
-                  <span className="block font-bold">استلام سريع من الموقع</span>
+                  <span className="block font-bold">خروج الطالب</span>
                   <span className="block text-xs font-normal text-muted-foreground">إبلاغ المدرسة بوصول ولي الأمر للبوابة</span>
                 </span>
               </span>
@@ -378,7 +378,7 @@ export default function ParentRequest() {
         <div className="px-6 py-4" style={{ background: school.color }}>
           <div className="flex items-center gap-2 text-white">
             {isPickup
-              ? <><Zap className="h-5 w-5" /><h2 className="text-lg font-bold">نموذج الاستلام السريع</h2></>
+              ? <><Zap className="h-5 w-5" /><h2 className="text-lg font-bold">طلب خروج الطالب</h2></>
               : <><ClipboardList className="h-5 w-5" /><h2 className="text-lg font-bold">نموذج طلب استئذان</h2></>}
           </div>
           <p className="text-white/80 text-xs mt-1">
@@ -671,7 +671,7 @@ export default function ParentRequest() {
               {submitting
                 ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ الإرسال...</>
                 : isPickup
-                  ? <><Zap className="ml-2 h-4 w-4" />إرسال طلب الاستلام السريع</>
+                  ? <><Zap className="ml-2 h-4 w-4" />إرسال طلب خروج الطالب</>
                   : 'إرسال طلب الاستئذان'}
             </Button>
 
